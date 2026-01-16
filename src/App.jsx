@@ -44,13 +44,6 @@ function isValidDateKey(s) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function cmpDateKey(a, b) {
-  // YYYY-MM-DD compares lexicographically correctly
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
-}
-
 function startOfWeekMonday(dateKey) {
   const d = new Date(dateKey + "T00:00:00");
   const day = d.getDay(); // 0=Sun..6=Sat
@@ -313,7 +306,7 @@ export default function App() {
         const reps = Number(s.reps ?? 0);
         const repsClean = Number.isFinite(reps) && reps > 0 ? Math.floor(reps) : 0;
         const w = String(s.weight ?? "").trim();
-        const weight = w.toUpperCase() === "BW" ? "BW" : w.replace(/[^\d.]/g, ""); // keep simple numeric
+        const weight = w.toUpperCase() === "BW" ? "BW" : w.replace(/[^\d.]/g, "");
         return { reps: repsClean, weight: weight || "BW" };
       })
       .filter((s) => s.reps > 0);
@@ -335,8 +328,6 @@ export default function App() {
     updateState((st) => {
       if (!st.logsByDate[dateKey]) return st;
       delete st.logsByDate[dateKey][exerciseId];
-      // If date becomes empty, keep it anyway (no accidental wipes); optional cleanup:
-      // if (Object.keys(st.logsByDate[dateKey]).length === 0) delete st.logsByDate[dateKey];
       return st;
     });
   }
@@ -475,7 +466,6 @@ export default function App() {
       return;
     }
 
-    // Basic validation
     const program = incoming.program && typeof incoming.program === "object" ? incoming.program : null;
     const logsByDate =
       incoming.logsByDate && typeof incoming.logsByDate === "object" ? incoming.logsByDate : null;
@@ -627,198 +617,195 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      <div style={styles.topBar}>
-        <div style={styles.brand}>Workout Tracker</div>
-        <div style={styles.dateRow}>
-          <label style={styles.label}>Date</label>
-          <input
-            type="date"
-            value={dateKey}
-            onChange={(e) => setDateKey(e.target.value)}
-            style={styles.dateInput}
-          />
+      {/* Centered column (fixes landscape) */}
+      <div style={styles.content}>
+        <div style={styles.topBar}>
+          <div style={styles.brand}>Workout Tracker</div>
+          <div style={styles.dateRow}>
+            <label style={styles.label}>Date</label>
+            <input
+              type="date"
+              value={dateKey}
+              onChange={(e) => setDateKey(e.target.value)}
+              style={styles.dateInput}
+            />
+          </div>
+        </div>
+
+        <div style={styles.body}>
+          {tab === "today" ? (
+            <div style={styles.section}>
+              {baselineWorkout ? <WorkoutCard workout={baselineWorkout} /> : null}
+
+              {workouts
+                .filter((w) => w.id !== BASELINE_WORKOUT_ID)
+                .map((w) => (
+                  <WorkoutCard key={w.id} workout={w} />
+                ))}
+            </div>
+          ) : null}
+
+          {tab === "summary" ? (
+            <div style={styles.section}>
+              <PillTabs
+                value={summaryMode}
+                onChange={setSummaryMode}
+                tabs={[
+                  { value: "wtd", label: "WTD" },
+                  { value: "mtd", label: "MTD" },
+                  { value: "ytd", label: "YTD" },
+                ]}
+              />
+              <div style={styles.rangeText}>
+                Range: <b>{summaryRange.start}</b> → <b>{summaryRange.end}</b>
+              </div>
+
+              {baselineWorkout ? <SummaryBlock workout={baselineWorkout} /> : null}
+
+              {workouts
+                .filter((w) => w.id !== BASELINE_WORKOUT_ID)
+                .map((w) => (
+                  <SummaryBlock key={w.id} workout={w} />
+                ))}
+            </div>
+          ) : null}
+
+          {tab === "manage" ? (
+            <div style={styles.section}>
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div style={styles.cardTitle}>Structure</div>
+                  <button style={styles.primaryBtn} onClick={addWorkout}>
+                    + Add Workout
+                  </button>
+                </div>
+
+                <div style={styles.manageList}>
+                  {workouts.map((w) => {
+                    const active = manageWorkoutId === w.id;
+                    return (
+                      <button
+                        key={w.id}
+                        style={{ ...styles.manageItem, ...(active ? styles.manageItemActive : {}) }}
+                        onClick={() => setManageWorkoutId(w.id)}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontWeight: 700 }}>{w.name}</div>
+                          {w.id === BASELINE_WORKOUT_ID ? (
+                            <span style={styles.tag}>Baseline</span>
+                          ) : (
+                            <span style={styles.tagMuted}>Workout</span>
+                          )}
+                        </div>
+                        <div style={styles.smallText}>{w.exercises.length} exercises</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {manageWorkoutId ? (
+                <div style={styles.card}>
+                  {(() => {
+                    const w = workoutById.get(manageWorkoutId);
+                    if (!w) return <div style={styles.emptyText}>Select a workout.</div>;
+                    const isBaseline = w.id === BASELINE_WORKOUT_ID;
+
+                    return (
+                      <>
+                        <div style={styles.cardHeader}>
+                          <div style={styles.cardTitle}>{w.name}</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button style={styles.secondaryBtn} onClick={() => renameWorkout(w.id)}>
+                              Rename
+                            </button>
+                            <button
+                              style={styles.dangerBtn}
+                              onClick={() => deleteWorkout(w.id)}
+                              disabled={isBaseline}
+                              title={isBaseline ? "Baseline cannot be deleted" : "Delete workout"}
+                            >
+                              Delete
+                            </button>
+                            <button style={styles.primaryBtn} onClick={() => addExercise(w.id)}>
+                              + Add Exercise
+                            </button>
+                          </div>
+                        </div>
+
+                        {w.exercises.length === 0 ? (
+                          <div style={styles.emptyText}>No exercises yet. Add one.</div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {w.exercises.map((ex) => (
+                              <div key={ex.id} style={styles.manageExerciseRow}>
+                                <div style={{ fontWeight: 700 }}>{ex.name}</div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button
+                                    style={styles.secondaryBtn}
+                                    onClick={() => renameExercise(w.id, ex.id)}
+                                  >
+                                    Rename
+                                  </button>
+                                  <button style={styles.dangerBtn} onClick={() => deleteExercise(w.id, ex.id)}>
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : null}
+
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div style={styles.cardTitle}>Backup</div>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button style={styles.secondaryBtn} onClick={exportJson}>
+                    Export JSON
+                  </button>
+
+                  <label style={{ ...styles.secondaryBtn, cursor: "pointer" }}>
+                    Import JSON
+                    <input
+                      type="file"
+                      accept="application/json"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) importJsonFromFile(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    style={styles.dangerBtn}
+                    onClick={() => {
+                      if (!confirm("Reset ALL data? This cannot be undone.")) return;
+                      setState(makeDefaultState());
+                      setManageWorkoutId(null);
+                      alert("Reset complete.");
+                    }}
+                  >
+                    Reset All
+                  </button>
+                </div>
+                <div style={styles.smallText}>
+                  Import replaces current data. Structure changes never delete past logs.
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <div style={styles.body}>
-        {tab === "today" ? (
-          <div style={styles.section}>
-            {/* Baseline first */}
-            {baselineWorkout ? <WorkoutCard workout={baselineWorkout} /> : null}
-
-            {/* Workouts (excluding baseline) */}
-            {workouts
-              .filter((w) => w.id !== BASELINE_WORKOUT_ID)
-              .map((w) => (
-                <WorkoutCard key={w.id} workout={w} />
-              ))}
-          </div>
-        ) : null}
-
-        {tab === "summary" ? (
-          <div style={styles.section}>
-            <PillTabs
-              value={summaryMode}
-              onChange={setSummaryMode}
-              tabs={[
-                { value: "wtd", label: "WTD" },
-                { value: "mtd", label: "MTD" },
-                { value: "ytd", label: "YTD" },
-              ]}
-            />
-            <div style={styles.rangeText}>
-              Range: <b>{summaryRange.start}</b> → <b>{summaryRange.end}</b>
-            </div>
-
-            {/* Baseline summary */}
-            {baselineWorkout ? <SummaryBlock workout={baselineWorkout} /> : null}
-
-            {/* Workout summaries */}
-            {workouts
-              .filter((w) => w.id !== BASELINE_WORKOUT_ID)
-              .map((w) => (
-                <SummaryBlock key={w.id} workout={w} />
-              ))}
-          </div>
-        ) : null}
-
-        {tab === "manage" ? (
-          <div style={styles.section}>
-            <div style={styles.card}>
-              <div style={styles.cardHeader}>
-                <div style={styles.cardTitle}>Structure</div>
-                <button style={styles.primaryBtn} onClick={addWorkout}>
-                  + Add Workout
-                </button>
-              </div>
-
-              <div style={styles.manageList}>
-                {workouts.map((w) => {
-                  const active = manageWorkoutId === w.id;
-                  return (
-                    <button
-                      key={w.id}
-                      style={{ ...styles.manageItem, ...(active ? styles.manageItemActive : {}) }}
-                      onClick={() => setManageWorkoutId(w.id)}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ fontWeight: 700 }}>{w.name}</div>
-                        {w.id === BASELINE_WORKOUT_ID ? (
-                          <span style={styles.tag}>Baseline</span>
-                        ) : (
-                          <span style={styles.tagMuted}>Workout</span>
-                        )}
-                      </div>
-                      <div style={styles.smallText}>{w.exercises.length} exercises</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {manageWorkoutId ? (
-              <div style={styles.card}>
-                {(() => {
-                  const w = workoutById.get(manageWorkoutId);
-                  if (!w) return <div style={styles.emptyText}>Select a workout.</div>;
-                  const isBaseline = w.id === BASELINE_WORKOUT_ID;
-
-                  return (
-                    <>
-                      <div style={styles.cardHeader}>
-                        <div style={styles.cardTitle}>{w.name}</div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <button style={styles.secondaryBtn} onClick={() => renameWorkout(w.id)}>
-                            Rename
-                          </button>
-                          <button
-                            style={styles.dangerBtn}
-                            onClick={() => deleteWorkout(w.id)}
-                            disabled={isBaseline}
-                            title={isBaseline ? "Baseline cannot be deleted" : "Delete workout"}
-                          >
-                            Delete
-                          </button>
-                          <button style={styles.primaryBtn} onClick={() => addExercise(w.id)}>
-                            + Add Exercise
-                          </button>
-                        </div>
-                      </div>
-
-                      {w.exercises.length === 0 ? (
-                        <div style={styles.emptyText}>No exercises yet. Add one.</div>
-                      ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {w.exercises.map((ex) => (
-                            <div key={ex.id} style={styles.manageExerciseRow}>
-                              <div style={{ fontWeight: 700 }}>{ex.name}</div>
-                              <div style={{ display: "flex", gap: 8 }}>
-                                <button
-                                  style={styles.secondaryBtn}
-                                  onClick={() => renameExercise(w.id, ex.id)}
-                                >
-                                  Rename
-                                </button>
-                                <button
-                                  style={styles.dangerBtn}
-                                  onClick={() => deleteExercise(w.id, ex.id)}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            ) : null}
-
-            <div style={styles.card}>
-              <div style={styles.cardHeader}>
-                <div style={styles.cardTitle}>Backup</div>
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button style={styles.secondaryBtn} onClick={exportJson}>
-                  Export JSON
-                </button>
-
-                <label style={{ ...styles.secondaryBtn, cursor: "pointer" }}>
-                  Import JSON
-                  <input
-                    type="file"
-                    accept="application/json"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) importJsonFromFile(f);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-
-                <button
-                  style={styles.dangerBtn}
-                  onClick={() => {
-                    if (!confirm("Reset ALL data? This cannot be undone.")) return;
-                    setState(makeDefaultState());
-                    setManageWorkoutId(null);
-                    alert("Reset complete.");
-                  }}
-                >
-                  Reset All
-                </button>
-              </div>
-              <div style={styles.smallText}>
-                Import replaces current data. Structure changes never delete past logs.
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
+      {/* Bottom nav stays fixed and safe-area aware */}
       <div style={styles.nav}>
         <button
           style={{ ...styles.navBtn, ...(tab === "today" ? styles.navBtnActive : {}) }}
@@ -888,7 +875,11 @@ export default function App() {
                     />
                   </div>
 
-                  <button style={styles.smallDangerBtn} onClick={() => removeSet(i)} disabled={draftSets.length <= 1}>
+                  <button
+                    style={styles.smallDangerBtn}
+                    onClick={() => removeSet(i)}
+                    disabled={draftSets.length <= 1}
+                  >
                     Remove
                   </button>
                 </div>
@@ -928,25 +919,42 @@ export default function App() {
 /* -------------------------------- Styles -------------------------------- */
 
 const styles = {
+  /* Full screen + center column to fix landscape */
   app: {
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
     background: "#0b0f14",
     color: "#e8eef7",
-    minHeight: "100vh",
+    minHeight: "100dvh",
+    width: "100%",
+    display: "flex",
+    justifyContent: "center",
+  },
+
+  /* Centered content column */
+  content: {
+    width: "100%",
+    maxWidth: 760, // landscape fix: no huge empty right side
     display: "flex",
     flexDirection: "column",
+    paddingLeft: "calc(14px + var(--safe-left, 0px))",
+    paddingRight: "calc(14px + var(--safe-right, 0px))",
+    paddingTop: "calc(10px + var(--safe-top, 0px))",
+    paddingBottom: "calc(92px + var(--safe-bottom, 0px))", // room for bottom nav
   },
+
   topBar: {
     position: "sticky",
     top: 0,
     zIndex: 10,
     background: "#0b0f14",
-    padding: "14px 14px 10px",
+    padding: "14px 0 10px",
     borderBottom: "1px solid rgba(255,255,255,0.08)",
   },
+
   brand: { fontWeight: 800, fontSize: 18, letterSpacing: 0.2 },
   dateRow: { marginTop: 10, display: "flex", alignItems: "center", gap: 10 },
   label: { fontSize: 12, opacity: 0.85 },
+
   dateInput: {
     flex: 1,
     padding: "10px 12px",
@@ -956,20 +964,26 @@ const styles = {
     color: "#e8eef7",
     fontSize: 14,
   },
-  body: { flex: 1, padding: 14, paddingBottom: 84 },
+
+  body: { flex: 1, paddingTop: 14 },
   section: { display: "flex", flexDirection: "column", gap: 12 },
 
+  /* Bottom nav safe-area aware */
   nav: {
     position: "fixed",
-    bottom: 0,
     left: 0,
     right: 0,
+    bottom: 0,
     display: "flex",
     gap: 8,
-    padding: 10,
+    paddingTop: 10,
+    paddingLeft: "calc(10px + var(--safe-left, 0px))",
+    paddingRight: "calc(10px + var(--safe-right, 0px))",
+    paddingBottom: "calc(10px + var(--safe-bottom, 0px))",
     background: "#0b0f14",
     borderTop: "1px solid rgba(255,255,255,0.08)",
   },
+
   navBtn: {
     flex: 1,
     padding: "12px 12px",
@@ -979,6 +993,7 @@ const styles = {
     color: "#e8eef7",
     fontWeight: 800,
   },
+
   navBtnActive: {
     border: "1px solid rgba(255,255,255,0.25)",
     background: "#152338",
@@ -991,6 +1006,7 @@ const styles = {
     padding: 12,
     boxShadow: "0 8px 18px rgba(0,0,0,0.25)",
   },
+
   cardHeader: {
     display: "flex",
     alignItems: "center",
@@ -998,7 +1014,9 @@ const styles = {
     gap: 10,
     marginBottom: 10,
   },
+
   cardTitle: { fontWeight: 900, fontSize: 16 },
+
   tag: {
     fontSize: 12,
     padding: "4px 8px",
@@ -1006,6 +1024,7 @@ const styles = {
     background: "rgba(255,255,255,0.12)",
     border: "1px solid rgba(255,255,255,0.10)",
   },
+
   tagMuted: {
     fontSize: 12,
     padding: "4px 8px",
@@ -1014,9 +1033,11 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.08)",
     opacity: 0.85,
   },
+
   emptyText: { opacity: 0.75, fontSize: 13, padding: "6px 2px" },
 
   exerciseRow: { display: "flex", alignItems: "stretch", gap: 10 },
+
   exerciseBtn: {
     flex: 1,
     textAlign: "left",
@@ -1026,6 +1047,7 @@ const styles = {
     background: "#0b111a",
     color: "#e8eef7",
   },
+
   exerciseName: { fontWeight: 800, fontSize: 15 },
   exerciseSub: { marginTop: 6, fontSize: 12, opacity: 0.8 },
 
@@ -1037,6 +1059,7 @@ const styles = {
     background: "rgba(46, 204, 113, 0.18)",
     border: "1px solid rgba(46, 204, 113, 0.25)",
   },
+
   badgeMuted: {
     fontSize: 11,
     fontWeight: 800,
@@ -1055,6 +1078,7 @@ const styles = {
     color: "#e8eef7",
     fontWeight: 900,
   },
+
   secondaryBtn: {
     padding: "10px 12px",
     borderRadius: 12,
@@ -1063,6 +1087,7 @@ const styles = {
     color: "#e8eef7",
     fontWeight: 800,
   },
+
   dangerBtn: {
     padding: "10px 12px",
     borderRadius: 12,
@@ -1071,6 +1096,7 @@ const styles = {
     color: "#ffd7d7",
     fontWeight: 900,
   },
+
   smallDangerBtn: {
     width: 72,
     padding: "10px 10px",
@@ -1080,6 +1106,7 @@ const styles = {
     color: "#ffd7d7",
     fontWeight: 900,
   },
+
   iconBtn: {
     width: 40,
     height: 40,
@@ -1091,6 +1118,7 @@ const styles = {
   },
 
   pillRow: { display: "flex", gap: 8, marginBottom: 10 },
+
   pill: {
     flex: 1,
     padding: "10px 12px",
@@ -1098,6 +1126,7 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.10)",
     fontWeight: 900,
   },
+
   pillActive: { background: "#152338", color: "#e8eef7", border: "1px solid rgba(255,255,255,0.20)" },
   pillInactive: { background: "#0f1722", color: "#e8eef7", opacity: 0.8 },
 
@@ -1113,7 +1142,9 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.10)",
     background: "#0b111a",
   },
+
   summaryRight: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
+
   summaryChip: {
     fontSize: 12,
     fontWeight: 900,
@@ -1124,6 +1155,7 @@ const styles = {
   },
 
   manageList: { display: "flex", flexDirection: "column", gap: 10 },
+
   manageItem: {
     textAlign: "left",
     padding: 12,
@@ -1132,10 +1164,12 @@ const styles = {
     background: "#0b111a",
     color: "#e8eef7",
   },
+
   manageItemActive: {
     border: "1px solid rgba(255,255,255,0.24)",
     background: "#152338",
   },
+
   manageExerciseRow: {
     display: "flex",
     alignItems: "center",
@@ -1159,6 +1193,7 @@ const styles = {
     padding: 10,
     zIndex: 50,
   },
+
   modalSheet: {
     width: "100%",
     maxWidth: 720,
@@ -1168,6 +1203,7 @@ const styles = {
     overflow: "hidden",
     boxShadow: "0 18px 40px rgba(0,0,0,0.45)",
   },
+
   modalHeader: {
     padding: 12,
     borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -1176,6 +1212,7 @@ const styles = {
     justifyContent: "space-between",
     gap: 10,
   },
+
   modalTitle: { fontWeight: 900, fontSize: 16 },
   modalBody: { padding: 12, maxHeight: "78vh", overflow: "auto" },
   modalFooter: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 },
@@ -1190,14 +1227,17 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.10)",
     background: "#0b111a",
   },
+
   setIndex: {
     fontWeight: 900,
     opacity: 0.85,
     textAlign: "center",
     paddingBottom: 10,
   },
+
   fieldCol: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
   bwCol: { display: "flex", flexDirection: "column", gap: 8, alignItems: "center" },
+
   numInput: {
     padding: "10px 12px",
     borderRadius: 12,
@@ -1206,6 +1246,7 @@ const styles = {
     color: "#e8eef7",
     fontSize: 14,
   },
+
   disabledInput: { opacity: 0.7 },
   checkbox: { width: 22, height: 22 },
 
