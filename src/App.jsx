@@ -254,6 +254,55 @@ function ConfirmModal({ open, title, message, confirmText = "Delete", onCancel, 
   );
 }
 
+function InputModal({
+  open,
+  title,
+  label,
+  placeholder,
+  initialValue = "",
+  confirmText = "Save",
+  onCancel,
+  onConfirm,
+  styles,
+}) {
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    if (open) setValue(initialValue || "");
+  }, [open, initialValue]);
+
+  if (!open) return null;
+
+  return (
+    <Modal open={open} title={title} onClose={onCancel} styles={styles}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={styles.fieldCol}>
+          <label style={styles.label}>{label}</label>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            style={styles.textInput}
+            placeholder={placeholder}
+            autoFocus
+          />
+        </div>
+
+        <div style={styles.modalFooter}>
+          <button style={styles.secondaryBtn} onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            style={styles.primaryBtn}
+            onClick={() => onConfirm(value)}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ThemeSwitch({ theme, onToggle, styles }) {
   const isDark = theme === "dark";
 
@@ -371,6 +420,24 @@ export default function App() {
 
   // Manage UI state
   const [manageWorkoutId, setManageWorkoutId] = useState(null);
+
+  const [inputOpen, setInputOpen] = useState(false);
+  const [inputTitle, setInputTitle] = useState("");
+  const [inputLabel, setInputLabel] = useState("");
+  const [inputPlaceholder, setInputPlaceholder] = useState("");
+  const [inputInitial, setInputInitial] = useState("");
+  const [inputConfirmText, setInputConfirmText] = useState("Save");
+  const [inputOnConfirm, setInputOnConfirm] = useState(() => () => {});
+
+  function openInput({ title, label, placeholder, initialValue = "", confirmText = "Save", onConfirm }) {
+    setInputTitle(title);
+    setInputLabel(label);
+    setInputPlaceholder(placeholder);
+    setInputInitial(initialValue);
+    setInputConfirmText(confirmText);
+    setInputOnConfirm(() => onConfirm);
+    setInputOpen(true);
+  }
 
   // Add-workout modal state
   const [addWorkoutOpen, setAddWorkoutOpen] = useState(false);
@@ -534,29 +601,46 @@ export default function App() {
   function renameWorkout(workoutId) {
     const w = workoutById.get(workoutId);
     if (!w) return;
-    const name = prompt("Rename workout:", w.name);
-    if (!name) return;
-    updateState((st) => {
-      const ww = st.program.workouts.find((x) => x.id === workoutId);
-      if (ww) ww.name = name.trim();
-      return st;
+
+    openInput({
+      title: "Rename workout",
+      label: "Workout name",
+      placeholder: "e.g. Push Day",
+      initialValue: w.name,
+      onConfirm: (val) => {
+        const name = (val || "").trim();
+        if (!name) return;
+        updateState((st) => {
+          const ww = st.program.workouts.find((x) => x.id === workoutId);
+          if (ww) ww.name = name;
+          return st;
+        });
+        setInputOpen(false);
+      },
     });
   }
 
-  function setWorkoutCategory(workoutId){
+  function setWorkoutCategory(workoutId) {
     const w = workoutById.get(workoutId);
     if (!w) return;
 
-    const current = (w.category || "").trim();
-    const next = prompt("Workout category:", current || "Workout");
-    if (next === null) return; // user hit cancel
-
-    updateState((st) => {
-      const ww = st.program.workouts.find((x) => x.id === workoutId);
-      if (ww) ww.category = (next || "").trim() || "Workout";
-      return st;
+    openInput({
+      title: "Set category",
+      label: "Workout category",
+      placeholder: "e.g. Push / Pull / Legs / Stretch",
+      initialValue: (w.category || "Workout").trim(),
+      onConfirm: (val) => {
+        const next = (val || "").trim() || "Workout";
+        updateState((st) => {
+          const ww = st.program.workouts.find((x) => x.id === workoutId);
+          if (ww) ww.category = next;
+          return st;
+        });
+        setInputOpen(false);
+      },
     });
   }
+
 
   function deleteWorkout(workoutId) {
     if (workoutId === BASELINE_WORKOUT_ID) {
@@ -568,7 +652,7 @@ export default function App() {
     
     openConfirm({
       title: "Delete workout?",
-      message: `Delete "${w.name}"? This will NOT delete past logs.`,
+      message: `Delete ${w.name}? This will NOT delete past logs.`,
       confirmText: "Delete",
       onConfirm: () => {
         updateState((st)=>{
@@ -582,13 +666,23 @@ export default function App() {
   }
 
   function addExercise(workoutId) {
-    const name = prompt("Exercise name:");
-    if (!name) return;
-    updateState((st) => {
-      const w = st.program.workouts.find((x) => x.id === workoutId);
-      if (!w) return st;
-      w.exercises.push({ id: uid("ex"), name: name.trim() });
-      return st;
+    openInput({
+      title: "Add exercise",
+      label: "Exercise name",
+      placeholder: "e.g. Bench Press",
+      initialValue: "",
+      confirmText: "Add",
+      onConfirm: (val) => {
+        const name = (val || "").trim();
+        if (!name) return;
+        updateState((st) => {
+          const w = st.program.workouts.find((x) => x.id === workoutId);
+          if (!w) return st;
+          w.exercises.push({ id: uid("ex"), name });
+          return st;
+        });
+        setInputOpen(false);
+      },
     });
   }
 
@@ -596,15 +690,28 @@ export default function App() {
     const w = workoutById.get(workoutId);
     const ex = w?.exercises?.find((e) => e.id === exerciseId);
     if (!ex) return;
-    const name = prompt("Rename exercise:", ex.name);
-    if (!name) return;
-    updateState((st) => {
-      const ww = st.program.workouts.find((x) => x.id === workoutId);
-      const ee = ww?.exercises?.find((e) => e.id === exerciseId);
-      if (ee) ee.name = name.trim();
-      return st;
+
+    openInput({
+      title: "Rename exercise",
+      label: "Exercise name",
+      placeholder: "e.g. Bench Press",
+      initialValue: ex.name,
+      onConfirm: (val) => {
+        const name = (val || "").trim();
+        if (!name) return;
+
+        updateState((st) => {
+          const ww = st.program.workouts.find((x) => x.id === workoutId);
+          const ee = ww?.exercises?.find((e) => e.id === exerciseId);
+          if (ee) ee.name = name;
+          return st;
+        });
+
+        setInputOpen(false);
+      },
     });
   }
+
 
   function deleteExercise(workoutId, exerciseId) {
     const w = workoutById.get(workoutId);
@@ -822,7 +929,11 @@ export default function App() {
             <input
               type="date"
               value={dateKey}
-              onChange={(e) => setDateKey(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                setDateKey(v);
+              }}
               style={styles.dateInput}
             />
           </div>
@@ -1218,6 +1329,18 @@ export default function App() {
           </div>
         </div>
       </Modal>
+
+      <InputModal
+        open={inputOpen}
+        title={inputTitle}
+        label={inputLabel}
+        placeholder={inputPlaceholder}
+        initialValue={inputInitial}
+        confirmText={inputConfirmText}
+        onCancel={() => setInputOpen(false)}
+        onConfirm={inputOnConfirm}
+        styles={styles}
+      />
 
     </div>
   );
