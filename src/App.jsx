@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 /**
  * Workout Tracker PWA (Galaxy-first, offline, minimal taps)
@@ -42,6 +42,33 @@ function uid(prefix = "id") {
 
 function isValidDateKey(s) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+function addDays(dateKey, delta) {
+  const d = new Date(dateKey + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return yyyyMmDd(d);
+}
+
+function monthKeyFromDate(dateKey) {
+  return dateKey.slice(0, 7); // "YYYY-MM"
+}
+
+function daysInMonth(year, monthIndex0) {
+  return new Date(year, monthIndex0 + 1, 0).getDate();
+}
+
+// Monday=0 ... Sunday=6
+function weekdayMonday0(dateKey) {
+  const d = new Date(dateKey + "T00:00:00");
+  return (d.getDay() + 6) % 7;
+}
+
+function shiftMonth(monthKey, deltaMonths) {
+  const [yy, mm] = monthKey.split("-").map(Number);
+  const d = new Date(yy, mm - 1, 1);
+  d.setMonth(d.getMonth() + deltaMonths);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function startOfWeekMonday(dateKey) {
@@ -303,6 +330,30 @@ function InputModal({
   );
 }
 
+function useSwipe({ onSwipeLeft, onSwipeRight, thresholdPx = 40 }) {
+  const startXRef = useRef(null);
+
+  function onTouchStart(e) {
+    const x = e.touches?.[0]?.clientX;
+    if (typeof x === "number") startXRef.current = x;
+  }
+
+  function onTouchEnd(e) {
+    const startX = startXRef.current;
+    startXRef.current = null;
+    const endX = e.changedTouches?.[0]?.clientX;
+    if (typeof startX !== "number" || typeof endX !== "number") return;
+
+    const dx = endX - startX;
+    if (Math.abs(dx) < thresholdPx) return;
+
+    if (dx < 0) onSwipeLeft?.();
+    else onSwipeRight?.();
+  }
+
+  return { onTouchStart, onTouchEnd };
+}
+
 function ThemeSwitch({ theme, onToggle, styles }) {
   const isDark = theme === "dark";
 
@@ -351,6 +402,7 @@ export default function App() {
   const [tab, setTab] = useState("today"); // today | summary | manage
   const [summaryMode, setSummaryMode] = useState("wtd"); // wtd | mtd | ytd
   const [dateKey, setDateKey] = useState(() => yyyyMmDd(new Date()));
+  const todayKey = yyyyMmDd(new Date());
   const [theme, setTheme] = useState(() => localStorage.getItem("wt_theme")|| "dark");
 
   const colors =
@@ -438,6 +490,19 @@ export default function App() {
     setInputOnConfirm(() => onConfirm);
     setInputOpen(true);
   }
+
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [monthCursor, setMonthCursor] = useState(() => monthKeyFromDate(dateKey));
+
+  useEffect(() => {
+    // keep calendar month aligned with selected date
+    setMonthCursor(monthKeyFromDate(dateKey));
+  }, [dateKey]);
+
+  const swipe = useSwipe({
+    onSwipeLeft: () => setMonthCursor((m) => shiftMonth(m, +1)),
+    onSwipeRight: () => setMonthCursor((m) => shiftMonth(m, -1)),
+  });
 
   // Add-workout modal state
   const [addWorkoutOpen, setAddWorkoutOpen] = useState(false);
@@ -543,6 +608,23 @@ export default function App() {
     setLogContext(null);
   }
 
+  const loggedDaysInMonth = useMemo(() => {
+    const set = new Set();
+    const prefix = monthCursor + "-"; // "YYYY-MM-"
+
+    for (const dk of Object.keys(state.logsByDate || {})) {
+      if (!isValidDateKey(dk)) continue;
+      if (!dk.startsWith(prefix)) continue;
+
+      const dayLogs = state.logsByDate[dk];
+      if (dayLogs && typeof dayLogs === "object" && Object.keys(dayLogs).length > 0) {
+      set.add(dk);
+      }
+    }
+    return set;
+  }, [state.logsByDate, monthCursor]);
+
+  
   function deleteLogForExercise(exerciseId) {
     updateState((st) => {
       if (!st.logsByDate[dateKey]) return st;
@@ -926,17 +1008,37 @@ export default function App() {
 
           <div style={styles.dateRow}>
             <label style={styles.label}>Date</label>
-            <input
-              type="date"
-              value={dateKey}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                setDateKey(v);
-              }}
-              style={styles.dateInput}
-            />
+
+            <div style={{ display: "flex", gap: 8, flex: 1 }}>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => setDateKey((k) => addDays(k, -1))}
+                aria-label="Previous day"
+                type="button"
+              >
+                ←
+              </button>
+
+              <button
+                style={{ ...styles.dateBtn, flex: 1 }}
+                onClick={() => setDatePickerOpen(true)}
+                aria-label="Pick date"
+                type="button"
+              >
+                {dateKey}
+              </button>
+
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => setDateKey((k) => addDays(k, +1))}
+                aria-label="Next day"
+                type="button"
+              >
+                →
+              </button>
+            </div>
           </div>
+
         </div>
 
         <div style={styles.body}>
@@ -1231,6 +1333,117 @@ export default function App() {
         </div>
       </Modal>
 
+      <Modal
+        styles={styles}
+        open={datePickerOpen}
+        title="Pick a date"
+        onClose={() => setDatePickerOpen(false)}
+      >
+        {(() => {
+          const [yy, mm] = monthCursor.split("-").map(Number);
+          const year = yy;
+          const monthIndex0 = mm - 1;
+
+          const firstDayKey = `${monthCursor}-01`;
+          const padLeft = weekdayMonday0(firstDayKey);
+          const dim = daysInMonth(year, monthIndex0);
+
+          const cells = [];
+          for (let i = 0; i < padLeft; i++) cells.push(null);
+          for (let d = 1; d <= dim; d++) cells.push(d);
+          while (cells.length % 7 !== 0) cells.push(null);
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Month header */}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setMonthCursor((m) => shiftMonth(m, -1))}
+                  type="button"
+                >
+                  Prev
+                </button>
+
+                <div style={{ fontWeight: 900, alignSelf: "center" }}>{monthCursor}</div>
+
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setMonthCursor((m) => shiftMonth(m, +1))}
+                  type="button"
+                >
+                  Next
+                </button>
+              </div>
+
+              {/* Swipe area + grid */}
+              <div {...swipe} style={styles.calendarSwipeArea}>
+                <div style={styles.calendarGrid}>
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
+                    <div key={w} style={styles.calendarDow}>{w}</div>
+                  ))}
+
+                  {cells.map((day, idx) => {
+                    if (!day) return <div key={idx} />;
+
+                    const dayKey = `${monthCursor}-${String(day).padStart(2, "0")}`;
+                    const selected = dayKey === dateKey;
+                    const hasLog = loggedDaysInMonth.has(dayKey);
+                    const isToday = dayKey === todayKey;
+
+                    return (
+                      <button
+                        key={idx}
+                        style={{
+                          ...styles.calendarCell,
+                          ...(isToday && !selected ? styles.calendarCellToday : {}),
+                          ...(selected ? styles.calendarCellActive : {}),
+                        }}
+                        onClick={() => {
+                          setDateKey(dayKey);        // ✅ apply instantly
+                          setDatePickerOpen(false);  // ✅ close immediately
+                        }}
+                        type="button"
+                      >
+                        <div style={styles.calendarCellNum}>{day}</div>
+                        <div style={{ height: 10, display: "flex", justifyContent: "center" }}>
+                          {hasLog ? <span style={styles.calendarDot} /> : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setDatePickerOpen(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+                <button
+                  style={styles.primaryBtn}
+                  onClick={() => {
+                    setDateKey(yyyyMmDd(new Date()));
+                    setDatePickerOpen(false);
+                  }}
+                  type="button"
+                >
+                  Today
+                </button>
+              </div>
+
+              <div style={styles.smallText}>
+                Tip: swipe left/right to change months. Dots = days with logs.
+              </div>
+            </div>
+          );
+          })()}
+      </Modal>
+
+
       <ConfirmModal
         open={confirmOpen}
         title={confirmTitle}
@@ -1397,7 +1610,71 @@ function getStyles(colors){
     boxSizing: "border-box",
   },
 
- 
+  dateBtn: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: `1px solid ${colors.border}`,
+    background: colors.inputBg,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: 900,
+    textAlign: "center",
+  },
+
+  calendarSwipeArea: {
+    borderRadius: 14,
+    touchAction: "pan-y",
+  },
+
+  calendarGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, 1fr)",
+    gap: 8,
+  },
+
+  calendarDow: {
+    fontSize: 11,
+    fontWeight: 800,
+    opacity: 0.75,
+    textAlign: "center",
+    padding: "4px 0",
+  },
+
+  calendarCell: {
+    padding: "10px 0 6px",
+    borderRadius: 12,
+    border: `1px solid ${colors.border}`,
+    background: colors.cardAltBg,
+    color: colors.text,
+    fontWeight: 900,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  calendarCellActive: {
+    background: colors.primaryBg,
+    color: colors.primaryText,
+    border: `1px solid ${colors.border}`,
+  },
+
+  calendarCellNum: {
+    lineHeight: "18px",
+  },
+
+  calendarDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    background: colors.primaryBg, // looks good on selected AND unselected
+    opacity: 0.9,
+  },
+
+  calendarCellToday: {
+    boxShadow: `0 0 0 2px ${colors.primaryBg} inset`,
+  },
+
   dateInput: {
     flex: 1,
     padding: "10px 12px",
