@@ -499,7 +499,6 @@ export default function App() {
   }
 
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [yearPickerOpen, setYearPickerOpen] = useState(false);
   const [monthCursor, setMonthCursor] = useState(() => monthKeyFromDate(dateKey));
 
   useEffect(() => {
@@ -586,7 +585,7 @@ export default function App() {
 
     setLogContext({ workoutId, exerciseId, exerciseName: exercise.name });
     setDraftSets(normalizedSets);
-    setDraftNotes(existing?.notes ?? "");
+    setDraftNotes(prior?.notes ?? "");
     setLogOpen(true);
   }
 
@@ -1345,10 +1344,7 @@ export default function App() {
         styles={styles}
         open={datePickerOpen}
         title="Pick a date"
-        onClose={() => {
-           setDatePickerOpen(false);
-           setYearPickerOpen(false);
-        }}
+        onClose={() => setDatePickerOpen(false)}
       >
         {(() => {
           const [yy, mm] = monthCursor.split("-").map(Number);
@@ -1366,8 +1362,8 @@ export default function App() {
 
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {/* Month header (with fast year jump) */}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+              {/* Month header */}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                 <button
                   style={styles.secondaryBtn}
                   onClick={() => setMonthCursor((m) => shiftMonth(m, -1))}
@@ -1376,21 +1372,9 @@ export default function App() {
                   Prev
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setYearPickerOpen(true)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    fontWeight: 900,
-                    fontSize: 16,
-                    color: colors.text,
-                    cursor: "pointer",
-                  }}
-                >
+                <div style={{ fontWeight: 900, alignSelf: "center" }}>
                   {formatMonthTitle(monthCursor)}
-                </button>
+                </div>
 
                 <button
                   style={styles.secondaryBtn}
@@ -1401,14 +1385,11 @@ export default function App() {
                 </button>
               </div>
 
-
               {/* Swipe area + grid */}
               <div {...swipe} style={styles.calendarSwipeArea}>
                 <div style={styles.calendarGrid}>
                   {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
-                    <div key={w} style={styles.calendarDow}>
-                      {w}
-                    </div>
+                    <div key={w} style={styles.calendarDow}>{w}</div>
                   ))}
 
                   {cells.map((day, idx) => {
@@ -1428,23 +1409,15 @@ export default function App() {
                           ...(selected ? styles.calendarCellActive : {}),
                         }}
                         onClick={() => {
-                          setDateKey(dayKey);
-                          setDatePickerOpen(false);
+                          setDateKey(dayKey);        // ✅ apply instantly
+                          setDatePickerOpen(false);  // ✅ close immediately
                         }}
                         type="button"
                       >
                         <div style={styles.calendarCellNum}>{day}</div>
                         <div style={{ height: 10, display: "flex", justifyContent: "center" }}>
-                          {hasLog ? (
-                            <span
-                              style={{
-                                ...styles.calendarDot,
-                                background: selected ? colors.primaryText : colors.primaryBg
-                              }}
-                            />
-                          ) : null}
+                          {hasLog ? <span style={styles.calendarDot} /> : null}
                         </div>
-
                       </button>
                     );
                   })}
@@ -1452,7 +1425,11 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button style={styles.secondaryBtn} onClick={() => setDatePickerOpen(false)} type="button">
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setDatePickerOpen(false)}
+                  type="button"
+                >
                   Close
                 </button>
                 <button
@@ -1467,49 +1444,35 @@ export default function App() {
                 </button>
               </div>
 
-              <div style={styles.smallText}>Tip: swipe left/right to change months. Dots = days with logs.</div>
+              <div style={styles.smallText}>
+                Tip: swipe left/right to change months. Dots = days with logs.
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+               <button style={styles.secondaryBtn} onClick={() => setMonthCursor((m) => shiftMonth(m, -12))}>
+                − Year
+              </button>
+
+              <button style={styles.secondaryBtn} onClick={() => setMonthCursor((m) => shiftMonth(m, -1))}>
+                Prev
+              </button>
+
+                <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                {formatMonthTitle(monthCursor)}
+                </div>
+
+              <button style={styles.secondaryBtn} onClick={() => setMonthCursor((m) => shiftMonth(m, +1))}>
+                Next
+                </button>
+
+              <button style={styles.secondaryBtn} onClick={() => setMonthCursor((m) => shiftMonth(m, +12))}>
+                + Year
+              </button>
+            </div>
+
             </div>
           );
-        })()}
-      </Modal>
-
-      <Modal
-        styles={styles}
-        open={yearPickerOpen}
-        title="Pick a year"
-        onClose={() => setYearPickerOpen(false)}
-      >
-        {(() => {
-          const currentYear = Number(monthCursor.slice(0, 4));
-          const monthPart = monthCursor.slice(5); // "MM"
-
-          const years = [];
-          for (let y = currentYear - 10; y <= currentYear + 10; y++) years.push(y);
-
-          return (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-              {years.map((y) => {
-                const active = y === currentYear;
-                return (
-                  <button
-                    key={y}
-                    type="button"
-                    style={{
-                      ...styles.calendarCell,
-                      ...(active ? styles.calendarCellActive : {}),
-                    }}
-                    onClick={() => {
-                      setMonthCursor(`${y}-${monthPart}`);
-                      setYearPickerOpen(false);
-                    }}
-                  >
-                    {y}
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })()}
+          })()}
       </Modal>
 
 
@@ -1624,8 +1587,7 @@ export default function App() {
         styles={styles}
       />
 
-      </div>
-
+    </div>
   );
 }
 
@@ -1864,7 +1826,7 @@ function getStyles(colors){
   primaryBtn: {
     padding: "10px 12px",
     borderRadius: 12,
-    border: `1px solid ${colors.border}`,
+    border: "1px solid rgba(255,255,255,0.18)",
     background: colors.primaryBg,
     color: colors.primaryText,
     fontWeight: 900,
@@ -1873,7 +1835,7 @@ function getStyles(colors){
   secondaryBtn: {
     padding: "10px 12px",
     borderRadius: 12,
-    border: `1px solid ${colors.border}`,
+    border: "1px solid rgba(255,255,255,0.12)",
     background: colors.cardAltBg,
     color: colors.text,
     fontWeight: 800,
