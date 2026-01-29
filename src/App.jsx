@@ -71,6 +71,13 @@ function shiftMonth(monthKey, deltaMonths) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function formatMonthTitle(monthKey) {
+  const [yy, mm] = monthKey.split("-").map(Number);
+  const d = new Date(yy, mm - 1, 1);
+  return d.toLocaleString(undefined, { month: "long", year: "numeric" }); // "January 2026"
+}
+
+
 function startOfWeekMonday(dateKey) {
   const d = new Date(dateKey + "T00:00:00");
   const day = d.getDay(); // 0=Sun..6=Sat
@@ -578,7 +585,7 @@ export default function App() {
 
     setLogContext({ workoutId, exerciseId, exerciseName: exercise.name });
     setDraftSets(normalizedSets);
-    setDraftNotes(prior?.notes ?? "");
+    setDraftNotes(existing ?.notes??"");
     setLogOpen(true);
   }
 
@@ -1355,8 +1362,16 @@ export default function App() {
 
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {/* Month header */}
+              {/* Month header (with fast year jump) */}
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setMonthCursor((m) => shiftMonth(m, -12))}
+                  type="button"
+                >
+                  − Year
+                </button>
+
                 <button
                   style={styles.secondaryBtn}
                   onClick={() => setMonthCursor((m) => shiftMonth(m, -1))}
@@ -1365,7 +1380,9 @@ export default function App() {
                   Prev
                 </button>
 
-                <div style={{ fontWeight: 900, alignSelf: "center" }}>{monthCursor}</div>
+                <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                  {formatMonthTitle(monthCursor)}
+                </div>
 
                 <button
                   style={styles.secondaryBtn}
@@ -1374,13 +1391,23 @@ export default function App() {
                 >
                   Next
                 </button>
+
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={() => setMonthCursor((m) => shiftMonth(m, +12))}
+                  type="button"
+                >
+                  + Year
+                </button>
               </div>
 
               {/* Swipe area + grid */}
               <div {...swipe} style={styles.calendarSwipeArea}>
                 <div style={styles.calendarGrid}>
                   {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
-                    <div key={w} style={styles.calendarDow}>{w}</div>
+                    <div key={w} style={styles.calendarDow}>
+                      {w}
+                    </div>
                   ))}
 
                   {cells.map((day, idx) => {
@@ -1400,15 +1427,23 @@ export default function App() {
                           ...(selected ? styles.calendarCellActive : {}),
                         }}
                         onClick={() => {
-                          setDateKey(dayKey);        // ✅ apply instantly
-                          setDatePickerOpen(false);  // ✅ close immediately
+                          setDateKey(dayKey);
+                          setDatePickerOpen(false);
                         }}
                         type="button"
                       >
                         <div style={styles.calendarCellNum}>{day}</div>
                         <div style={{ height: 10, display: "flex", justifyContent: "center" }}>
-                          {hasLog ? <span style={styles.calendarDot} /> : null}
+                          {hasLog ? (
+                            <span
+                              style={{
+                                ...styles.calendarDot,
+                                background: selected ? colors.primaryText : colors.primaryBg
+                              }}
+                            />
+                          ) : null}
                         </div>
+
                       </button>
                     );
                   })}
@@ -1416,11 +1451,7 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button
-                  style={styles.secondaryBtn}
-                  onClick={() => setDatePickerOpen(false)}
-                  type="button"
-                >
+                <button style={styles.secondaryBtn} onClick={() => setDatePickerOpen(false)} type="button">
                   Close
                 </button>
                 <button
@@ -1435,13 +1466,12 @@ export default function App() {
                 </button>
               </div>
 
-              <div style={styles.smallText}>
-                Tip: swipe left/right to change months. Dots = days with logs.
-              </div>
+              <div style={styles.smallText}>Tip: swipe left/right to change months. Dots = days with logs.</div>
             </div>
           );
-          })()}
+        })()}
       </Modal>
+
 
 
       <ConfirmModal
@@ -1794,7 +1824,7 @@ function getStyles(colors){
   primaryBtn: {
     padding: "10px 12px",
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.18)",
+    border: `1px solid ${colors.border}`,
     background: colors.primaryBg,
     color: colors.primaryText,
     fontWeight: 900,
@@ -1803,7 +1833,7 @@ function getStyles(colors){
   secondaryBtn: {
     padding: "10px 12px",
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: `1px solid ${colors.border}`,
     background: colors.cardAltBg,
     color: colors.text,
     fontWeight: 800,
