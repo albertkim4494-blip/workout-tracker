@@ -499,6 +499,7 @@ export default function App() {
   }
 
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [yearPickerOpen, setYearPickerOpen] = useState(false);
   const [monthCursor, setMonthCursor] = useState(() => monthKeyFromDate(dateKey));
 
   useEffect(() => {
@@ -1344,7 +1345,10 @@ export default function App() {
         styles={styles}
         open={datePickerOpen}
         title="Pick a date"
-        onClose={() => setDatePickerOpen(false)}
+        onClose={() => {
+           setDatePickerOpen(false);
+           setYearPickerOpen(false);
+        }}
       >
         {(() => {
           const [yy, mm] = monthCursor.split("-").map(Number);
@@ -1363,15 +1367,7 @@ export default function App() {
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Month header (with fast year jump) */}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <button
-                  style={styles.secondaryBtn}
-                  onClick={() => setMonthCursor((m) => shiftMonth(m, -12))}
-                  type="button"
-                >
-                  − Year
-                </button>
-
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
                 <button
                   style={styles.secondaryBtn}
                   onClick={() => setMonthCursor((m) => shiftMonth(m, -1))}
@@ -1380,9 +1376,21 @@ export default function App() {
                   Prev
                 </button>
 
-                <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setYearPickerOpen(true)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    fontWeight: 900,
+                    fontSize: 16,
+                    color: colors.text,
+                    cursor: "pointer",
+                  }}
+                >
                   {formatMonthTitle(monthCursor)}
-                </div>
+                </button>
 
                 <button
                   style={styles.secondaryBtn}
@@ -1391,15 +1399,8 @@ export default function App() {
                 >
                   Next
                 </button>
-
-                <button
-                  style={styles.secondaryBtn}
-                  onClick={() => setMonthCursor((m) => shiftMonth(m, +12))}
-                  type="button"
-                >
-                  + Year
-                </button>
               </div>
+
 
               {/* Swipe area + grid */}
               <div {...swipe} style={styles.calendarSwipeArea}>
@@ -1472,6 +1473,44 @@ export default function App() {
         })()}
       </Modal>
 
+      <Modal
+        styles={styles}
+        open={yearPickerOpen}
+        title="Pick a year"
+        onClose={() => setYearPickerOpen(false)}
+      >
+        {(() => {
+          const currentYear = Number(monthCursor.slice(0, 4));
+          const monthPart = monthCursor.slice(5); // "MM"
+
+          const years = [];
+          for (let y = currentYear - 10; y <= currentYear + 10; y++) years.push(y);
+
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {years.map((y) => {
+                const active = y === currentYear;
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    style={{
+                      ...styles.calendarCell,
+                      ...(active ? styles.calendarCellActive : {}),
+                    }}
+                    onClick={() => {
+                      setMonthCursor(`${y}-${monthPart}`);
+                      setYearPickerOpen(false);
+                    }}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </Modal>
 
 
       <ConfirmModal
