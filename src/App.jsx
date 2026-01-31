@@ -29,7 +29,6 @@ import React, { useEffect, useMemo, useState, useRef, useReducer, useCallback } 
 
 const LS_KEY = "workout_tracker_v2";
 const LS_BACKUP_KEY = "workout_tracker_v2_backup";
-const BASELINE_WORKOUT_ID = "baseline";
 
 const REP_UNITS = [
   // Count
@@ -223,47 +222,20 @@ function formatMaxWeight(maxNum, hasBW) {
 }
 
 /**
- * Ensure baseline workout exists in program
- */
-function ensureBaselineWorkout(program) {
-  const hasBaseline = program.workouts.some((w) => w.id === BASELINE_WORKOUT_ID);
-  if (hasBaseline) return program;
-  return {
-    ...program,
-    workouts: [
-      {
-        id: BASELINE_WORKOUT_ID,
-        name: "Baseline",
-        category: "Baseline",
-        exercises: defaultBaselineExercises(),
-      },
-      ...program.workouts,
-    ],
-  };
-}
-
-/**
- * Default baseline exercises
- */
-function defaultBaselineExercises() {
-  return [
-    { id: uid("ex"), name: "Push Ups", unit: "reps" },
-    { id: uid("ex"), name: "Pull Ups", unit: "reps" },
-    { id: uid("ex"), name: "Squats", unit: "reps" },
-    { id: uid("ex"), name: "Face Pulls", unit: "reps" },
-  ];
-}
-
-/**
  * Default workouts for new users
  */
 function defaultWorkouts() {
   return [
     {
-      id: BASELINE_WORKOUT_ID,
+      id: uid("w"),
       name: "Baseline",
       category: "Baseline",
-      exercises: defaultBaselineExercises(),
+      exercises: [
+        { id: uid("ex"), name: "Push Ups", unit: "reps" },
+        { id: uid("ex"), name: "Pull Ups", unit: "reps" },
+        { id: uid("ex"), name: "Squats", unit: "reps" },
+        { id: uid("ex"), name: "Face Pulls", unit: "reps" },
+      ],
     },
     {
       id: uid("w"),
@@ -319,7 +291,7 @@ function loadState() {
   const next = {
     ...makeDefaultState(),
     ...st,
-    program: ensureBaselineWorkout({ ...rawProgram, workouts: rawWorkouts }),
+    program: { ...rawProgram, workouts: rawWorkouts },
     logsByDate: st.logsByDate && typeof st.logsByDate === "object" ? st.logsByDate : {},
     meta: { ...(st.meta ?? {}), updatedAt: Date.now() },
   };
@@ -331,8 +303,6 @@ function loadState() {
     category:
       typeof w.category === "string" && w.category.trim()
         ? w.category.trim()
-        : w.id === BASELINE_WORKOUT_ID
-        ? "Baseline"
         : "Workout",
   }));
 
@@ -1282,11 +1252,6 @@ export default function App() {
 
   const workouts = state.program.workouts;
 
-  const baselineWorkout = useMemo(
-    () => workouts.find((w) => w.id === BASELINE_WORKOUT_ID) ?? null,
-    [workouts]
-  );
-
   const workoutById = useMemo(() => {
     const m = new Map();
     for (const w of workouts) m.set(w.id, w);
@@ -1349,14 +1314,6 @@ export default function App() {
     setOverflowMenuOpen(false);
   }, [manageWorkoutId]);
 
-  // Ensure baseline workout exists
-  useEffect(() => {
-    setState((prev) => {
-      const hasBaseline = prev.program.workouts.some((w) => w.id === BASELINE_WORKOUT_ID);
-      if (hasBaseline) return prev;
-      return { ...prev, program: ensureBaselineWorkout(prev.program) };
-    });
-  }, []);
 
   // Persist state changes
   useEffect(() => {
@@ -1617,10 +1574,6 @@ export default function App() {
    */
   const deleteWorkout = useCallback(
     (workoutId) => {
-      if (workoutId === BASELINE_WORKOUT_ID) {
-        alert("Baseline cannot be deleted.");
-        return;
-      }
       const w = workoutById.get(workoutId);
       if (!w) return;
 
@@ -1780,7 +1733,7 @@ export default function App() {
   }, [modals.editUnit]);
 
   /**
-   * Move a workout up or down in the list (skips baseline)
+   * Move a workout up or down in the list
    */
   function moveWorkout(workoutId, direction) {
     updateState((st) => {
@@ -1789,8 +1742,6 @@ export default function App() {
       if (idx < 0) return st;
       const targetIdx = idx + direction;
       if (targetIdx < 0 || targetIdx >= arr.length) return st;
-      // Don't swap with baseline
-      if (arr[targetIdx].id === BASELINE_WORKOUT_ID) return st;
       [arr[idx], arr[targetIdx]] = [arr[targetIdx], arr[idx]];
       return st;
     });
@@ -1856,7 +1807,7 @@ export default function App() {
       const next = {
         ...makeDefaultState(),
         ...incoming,
-        program: ensureBaselineWorkout(incoming.program),
+        program: incoming.program,
         logsByDate,
         meta: { ...(incoming.meta ?? {}), updatedAt: Date.now() },
       };
@@ -2022,7 +1973,7 @@ export default function App() {
               const s = computeExerciseSummary(ex.id, summaryRange.start, summaryRange.end, exUnit);
               return (
                 <div key={ex.id} style={styles.summaryRow}>
-                  <div style={{ fontWeight: 600 }}>{ex.name}</div>
+                  <div style={styles.exerciseName}>{ex.name}</div>
                   <div style={styles.summaryRight}>
                     <span style={styles.summaryChip}>{s.totalReps} {exUnit.abbr}</span>
                     <span style={styles.summaryChip}>Max {s.maxWeight}</span>
@@ -2095,12 +2046,9 @@ export default function App() {
           {/* TODAY TAB */}
           {tab === "today" ? (
             <div style={styles.section}>
-              {baselineWorkout ? <WorkoutCard workout={baselineWorkout} /> : null}
-              {workouts
-                .filter((w) => w.id !== BASELINE_WORKOUT_ID)
-                .map((w) => (
-                  <WorkoutCard key={w.id} workout={w} />
-                ))}
+              {workouts.map((w) => (
+                <WorkoutCard key={w.id} workout={w} />
+              ))}
             </div>
           ) : null}
 
@@ -2128,12 +2076,9 @@ export default function App() {
                 Range: <b>{summaryRange.start}</b> → <b>{summaryRange.end}</b>
               </div>
 
-              {baselineWorkout ? <SummaryBlock workout={baselineWorkout} /> : null}
-              {workouts
-                .filter((w) => w.id !== BASELINE_WORKOUT_ID)
-                .map((w) => (
-                  <SummaryBlock key={w.id} workout={w} />
-                ))}
+              {workouts.map((w) => (
+                <SummaryBlock key={w.id} workout={w} />
+              ))}
             </div>
           ) : null}
 
@@ -2160,8 +2105,7 @@ export default function App() {
                 <div style={styles.manageList}>
                   {workouts.map((w, wi) => {
                     const active = manageWorkoutId === w.id;
-                    const isBase = w.id === BASELINE_WORKOUT_ID;
-                    const isFirst = wi === 0 || (wi === 1 && workouts[0]?.id === BASELINE_WORKOUT_ID);
+                    const isFirst = wi === 0;
                     const isLast = wi === workouts.length - 1;
                     return (
                       <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -2175,7 +2119,7 @@ export default function App() {
                           </div>
                           <div style={styles.smallText}>{w.exercises.length} exercises</div>
                         </button>
-                        {reorderMode && !isBase ? (
+                        {reorderMode ? (
                           <div style={styles.reorderBtnGroup}>
                             <button
                               style={styles.reorderBtn}
@@ -2203,7 +2147,6 @@ export default function App() {
                   {(() => {
                     const w = workoutById.get(manageWorkoutId);
                     if (!w) return <div style={styles.emptyText}>Select a workout.</div>;
-                    const isBaseline = w.id === BASELINE_WORKOUT_ID;
 
                     return (
                       <>
@@ -2231,12 +2174,10 @@ export default function App() {
                                     style={styles.overflowMenuItem}
                                     onClick={() => { setOverflowMenuOpen(false); setWorkoutCategory(w.id); }}
                                   >Change category</button>
-                                  {!isBaseline ? (
-                                    <button
+                                  <button
                                       style={styles.overflowMenuItemDanger}
                                       onClick={() => { setOverflowMenuOpen(false); deleteWorkout(w.id); }}
                                     >Delete workout</button>
-                                  ) : null}
                                 </div>
                               </>
                             ) : null}
@@ -2664,7 +2605,6 @@ export default function App() {
             />
             <datalist id="category-suggestions">
               <option value="Workout" />
-              <option value="Baseline" />
               <option value="Push" />
               <option value="Pull" />
               <option value="Legs" />
@@ -2842,7 +2782,7 @@ export default function App() {
       <AddSuggestedExerciseModal
         open={modals.addSuggestion.isOpen}
         exerciseName={modals.addSuggestion.exerciseName}
-        workouts={workouts.filter(w => w.id !== BASELINE_WORKOUT_ID)}
+        workouts={workouts}
         onCancel={() => dispatchModal({ type: "CLOSE_ADD_SUGGESTION" })}
         onConfirm={confirmAddSuggestion}
         styles={styles}
@@ -2943,6 +2883,7 @@ function getStyles(colors) {
     content: {
       width: "100%",
       maxWidth: 760,
+      overflowX: "hidden",
       display: "flex",
       flexDirection: "column",
       paddingLeft: "calc(14px + var(--safe-left, 0px))",
@@ -3185,6 +3126,7 @@ function getStyles(colors) {
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap",
+      minWidth: 0,
     },
 
     manageExerciseActions: {
@@ -3236,8 +3178,9 @@ function getStyles(colors) {
       fontWeight: 900,
       padding: "6px 10px",
       borderRadius: 999,
-      background: "rgba(255,255,255,0.08)",
-      border: "1px solid rgba(255,255,255,0.10)",
+      background: colors.primaryBg,
+      color: colors.primaryText,
+      border: `1px solid ${colors.border}`,
     },
 
     smallText: { fontSize: 12, opacity: 0.8 },
@@ -3265,7 +3208,7 @@ function getStyles(colors) {
 
     modalHeader: {
       padding: 12,
-      borderBottom: "1px solid rgba(255,255,255,0.08)",
+      borderBottom: `1px solid ${colors.border}`,
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
