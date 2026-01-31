@@ -104,6 +104,10 @@ function addDays(dateKey, delta) {
   return yyyyMmDd(d);
 }
 
+function formatDateLabel(dateKey) {
+  return new Date(dateKey + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 /**
  * Get month key from date (YYYY-MM)
  */
@@ -124,6 +128,13 @@ function daysInMonth(year, monthIndex0) {
 function weekdayMonday0(dateKey) {
   const d = new Date(dateKey + "T00:00:00");
   return (d.getDay() + 6) % 7;
+}
+
+/**
+ * Get weekday (Sunday = 0, Saturday = 6)
+ */
+function weekdaySunday0(dateKey) {
+  return new Date(dateKey + "T00:00:00").getDay();
 }
 
 /**
@@ -153,6 +164,15 @@ function startOfWeekMonday(dateKey) {
   const day = d.getDay();
   const diffToMonday = (day + 6) % 7;
   d.setDate(d.getDate() - diffToMonday);
+  return yyyyMmDd(d);
+}
+
+/**
+ * Get the Sunday of the week containing this date
+ */
+function startOfWeekSunday(dateKey) {
+  const d = new Date(dateKey + "T00:00:00");
+  d.setDate(d.getDate() - d.getDay());
   return yyyyMmDd(d);
 }
 
@@ -1277,7 +1297,7 @@ export default function App() {
 
   const summaryRange = useMemo(() => {
     if (summaryMode === "wtd") {
-      return { start: startOfWeekMonday(dateKey), end: dateKey, label: "WTD" };
+      return { start: startOfWeekSunday(dateKey), end: dateKey, label: "WTD" };
     }
     if (summaryMode === "mtd") {
       return { start: startOfMonth(dateKey), end: dateKey, label: "MTD" };
@@ -2055,7 +2075,7 @@ export default function App() {
                 aria-label="Pick date"
                 type="button"
               >
-                {dateKey}
+                {formatDateLabel(dateKey)}
               </button>
 
               <button
@@ -2237,8 +2257,8 @@ export default function App() {
                               const isLastEx = ei === w.exercises.length - 1;
                               return (
                                 <div key={ex.id} style={styles.manageExerciseRow}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-                                    <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.name}</div>
+                                  <div style={styles.manageExerciseLeft}>
+                                    <div style={styles.manageExerciseName}>{ex.name}</div>
                                     <span style={styles.unitPill}>{getUnit(ex.unit, ex).abbr}</span>
                                   </div>
                                   {reorderMode ? (
@@ -2257,7 +2277,7 @@ export default function App() {
                                       >&#9660;</button>
                                     </div>
                                   ) : (
-                                    <div style={{ display: "flex", gap: 4 }}>
+                                    <div style={styles.manageExerciseActions}>
                                       <button style={styles.compactSecondaryBtn} onClick={() => editUnitExercise(w.id, ex.id)}>
                                         Unit
                                       </button>
@@ -2475,7 +2495,7 @@ export default function App() {
           const monthIndex0 = mm - 1;
 
           const firstDayKey = `${modals.datePicker.monthCursor}-01`;
-          const padLeft = weekdayMonday0(firstDayKey);
+          const padLeft = weekdaySunday0(firstDayKey);
           const dim = daysInMonth(year, monthIndex0);
 
           const cells = [];
@@ -2519,7 +2539,7 @@ export default function App() {
               {/* Calendar grid */}
               <div {...swipe} style={styles.calendarSwipeArea}>
                 <div style={styles.calendarGrid}>
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
                     <div key={w} style={styles.calendarDow}>
                       {w}
                     </div>
@@ -3149,6 +3169,28 @@ function getStyles(colors) {
       borderRadius: 14,
       border: `1px solid ${colors.border}`,
       background: colors.cardAltBg,
+      overflow: "hidden",
+    },
+
+    manageExerciseLeft: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0,
+      flex: 1,
+    },
+
+    manageExerciseName: {
+      fontWeight: 700,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+
+    manageExerciseActions: {
+      display: "flex",
+      gap: 4,
+      flexShrink: 0,
     },
 
     pillRow: { display: "flex", gap: 8, marginBottom: 10 },
@@ -3600,6 +3642,7 @@ function getStyles(colors) {
       display: "flex",
       flexDirection: "column",
       gap: 2,
+      flexShrink: 0,
     },
 
     reorderBtn: {
