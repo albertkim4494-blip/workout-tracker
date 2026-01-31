@@ -395,7 +395,181 @@ function validateWorkoutName(name, existingWorkouts = []) {
 }
 
 // ============================================================================
-// 3. STATE MANAGEMENT - Modal Reducer
+// 3. AI COACH LOGIC - NEW IN V2!
+// ============================================================================
+
+/**
+ * Muscle group classification for balance analysis
+ */
+const MUSCLE_GROUPS = {
+  ANTERIOR_DELT: ['front delt', 'anterior delt', 'overhead press', 'military press', 'shoulder press'],
+  LATERAL_DELT: ['side delt', 'lateral delt', 'lateral raise'],
+  POSTERIOR_DELT: ['rear delt', 'posterior delt', 'face pull', 'reverse fly', 'reverse flye'],
+  CHEST: ['chest', 'bench press', 'bench', 'push up', 'pushup', 'dip', 'fly', 'flye', 'pec'],
+  TRICEPS: ['tricep', 'triceps', 'extension', 'skullcrusher', 'pushdown'],
+  BACK: ['back', 'row', 'pull up', 'pullup', 'chin up', 'chinup', 'lat', 'pulldown', 'pull down', 'deadlift'],
+  BICEPS: ['bicep', 'biceps', 'curl'],
+  QUADS: ['quad', 'squat', 'leg press', 'lunge'],
+  HAMSTRINGS: ['hamstring', 'leg curl', 'rdl', 'romanian'],
+  GLUTES: ['glute', 'hip thrust'],
+  CALVES: ['calf', 'calves', 'raise'],
+  ABS: ['ab', 'abs', 'core', 'plank', 'crunch', 'sit up', 'situp'],
+};
+
+function classifyExercise(exerciseName) {
+  const lower = exerciseName.toLowerCase();
+  const matches = [];
+  
+  for (const [group, keywords] of Object.entries(MUSCLE_GROUPS)) {
+    for (const keyword of keywords) {
+      if (lower.includes(keyword)) {
+        matches.push(group);
+        break;
+      }
+    }
+  }
+  
+  return matches.length > 0 ? matches : ['UNCLASSIFIED'];
+}
+
+function analyzeWorkoutBalance(state, dateRange) {
+  const muscleGroupVolume = {};
+  const exerciseIdToName = new Map();
+  
+  for (const workout of state.program.workouts) {
+    for (const ex of workout.exercises) {
+      exerciseIdToName.set(ex.id, ex.name);
+    }
+  }
+  
+  for (const dateKey of Object.keys(state.logsByDate)) {
+    if (!inRangeInclusive(dateKey, dateRange.start, dateRange.end)) continue;
+    
+    const dayLogs = state.logsByDate[dateKey];
+    
+    for (const [exerciseId, log] of Object.entries(dayLogs)) {
+      const exerciseName = exerciseIdToName.get(exerciseId);
+      if (!exerciseName) continue;
+      
+      const groups = classifyExercise(exerciseName);
+      const totalReps = log.sets.reduce((sum, set) => sum + (Number(set.reps) || 0), 0);
+      
+      for (const group of groups) {
+        muscleGroupVolume[group] = (muscleGroupVolume[group] || 0) + totalReps;
+      }
+    }
+  }
+  
+  return { muscleGroupVolume };
+}
+
+function getSuggestionsForMuscleGroup(group) {
+  const suggestions = {
+    POSTERIOR_DELT: [
+      { exercise: 'Face Pulls', muscleGroup: 'POSTERIOR_DELT' },
+      { exercise: 'Reverse Flyes', muscleGroup: 'POSTERIOR_DELT' },
+    ],
+    BACK: [
+      { exercise: 'Pull Ups', muscleGroup: 'BACK' },
+      { exercise: 'Barbell Rows', muscleGroup: 'BACK' },
+      { exercise: 'Lat Pulldowns', muscleGroup: 'BACK' },
+    ],
+    BICEPS: [
+      { exercise: 'Barbell Curls', muscleGroup: 'BICEPS' },
+      { exercise: 'Hammer Curls', muscleGroup: 'BICEPS' },
+    ],
+    HAMSTRINGS: [
+      { exercise: 'Romanian Deadlifts', muscleGroup: 'HAMSTRINGS' },
+      { exercise: 'Leg Curls', muscleGroup: 'HAMSTRINGS' },
+    ],
+  };
+  
+  return suggestions[group] || [];
+}
+
+function detectImbalances(analysis) {
+  const insights = [];
+  const { muscleGroupVolume } = analysis;
+  
+  const totalVolume = Object.values(muscleGroupVolume).reduce((a, b) => a + b, 0);
+  
+  if (totalVolume < 50) return [];
+  
+  // Check push/pull ratio
+  const pushVolume = 
+    (muscleGroupVolume.CHEST || 0) + 
+    (muscleGroupVolume.ANTERIOR_DELT || 0) + 
+    (muscleGroupVolume.TRICEPS || 0);
+    
+  const pullVolume = 
+    (muscleGroupVolume.BACK || 0) + 
+    (muscleGroupVolume.POSTERIOR_DELT || 0) + 
+    (muscleGroupVolume.BICEPS || 0);
+  
+  if (pushVolume > pullVolume * 1.5 && pullVolume > 0) {
+    const ratio = (pushVolume / pullVolume).toFixed(1);
+    insights.push({
+      type: 'IMBALANCE',
+      severity: 'HIGH',
+      title: '⚠️ Push/Pull Imbalance Detected',
+      message: `You're doing ${ratio}x more pushing than pulling. This can lead to shoulder issues and poor posture.`,
+      suggestions: [
+        { exercise: 'Barbell Rows', muscleGroup: 'BACK' },
+        { exercise: 'Pull Ups', muscleGroup: 'BACK' },
+        { exercise: 'Face Pulls', muscleGroup: 'POSTERIOR_DELT' },
+      ]
+    });
+  }
+  
+  // Check posterior delt neglect
+  const anteriorDelt = muscleGroupVolume.ANTERIOR_DELT || 0;
+  const posteriorDelt = muscleGroupVolume.POSTERIOR_DELT || 0;
+  
+  if (anteriorDelt > posteriorDelt * 2 && anteriorDelt > 30) {
+    insights.push({
+      type: 'IMBALANCE',
+      severity: 'MEDIUM',
+      title: '💡 Rear Delt Neglect',
+      message: 'Your front delts are getting way more work than rear delts. Add rear delt work for balanced shoulders.',
+      suggestions: getSuggestionsForMuscleGroup('POSTERIOR_DELT')
+    });
+  }
+  
+  // Check neglected groups
+  const importantGroups = ['BACK', 'HAMSTRINGS', 'POSTERIOR_DELT'];
+  
+  for (const group of importantGroups) {
+    const volume = muscleGroupVolume[group] || 0;
+    const percentage = (volume / totalVolume) * 100;
+    
+    if (percentage < 5 && totalVolume > 100 && insights.length < 2) {
+      const groupName = group.replace(/_/g, ' ').toLowerCase();
+      insights.push({
+        type: 'NEGLECTED',
+        severity: 'LOW',
+        title: `📊 ${groupName} volume is low`,
+        message: `You've barely trained ${groupName} recently. Consider adding some direct work.`,
+        suggestions: getSuggestionsForMuscleGroup(group)
+      });
+    }
+  }
+  
+  // Positive feedback
+  if (insights.length === 0 && totalVolume > 100) {
+    insights.push({
+      type: 'POSITIVE',
+      severity: 'INFO',
+      title: '✅ Training looks balanced!',
+      message: 'Your workout volume is well-distributed. Keep up the great work!',
+      suggestions: []
+    });
+  }
+  
+  return insights.slice(0, 3);
+}
+
+// ============================================================================
+// 4. STATE MANAGEMENT - Modal Reducer
 // ============================================================================
 
 /**
@@ -434,6 +608,11 @@ const initialModalState = {
     isOpen: false,
     name: "",
     category: "Workout",
+  },
+  // NEW: Modal for adding suggested exercises from AI Coach
+  addSuggestion: {
+    isOpen: false,
+    exerciseName: "",
   },
 };
 
@@ -564,6 +743,22 @@ function modalReducer(state, action) {
       return {
         ...state,
         addWorkout: initialModalState.addWorkout,
+      };
+
+    // NEW: Add suggestion modal actions
+    case "OPEN_ADD_SUGGESTION":
+      return {
+        ...state,
+        addSuggestion: {
+          isOpen: true,
+          exerciseName: action.payload.exerciseName,
+        },
+      };
+
+    case "CLOSE_ADD_SUGGESTION":
+      return {
+        ...state,
+        addSuggestion: initialModalState.addSuggestion,
       };
 
     default:
@@ -763,6 +958,151 @@ function ThemeSwitch({ theme, onToggle, styles }) {
   );
 }
 
+/**
+ * NEW: AI Coach Insights Card
+ */
+function CoachInsightsCard({ insights, onAddExercise, styles }) {
+  const [expandedIndex, setExpandedIndex] = useState(null);
+  
+  if (insights.length === 0) return null;
+  
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div style={styles.cardTitle}>🤖 AI Coach</div>
+        <span style={styles.badge}>
+          {insights.length} insight{insights.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {insights.map((insight, idx) => (
+          <InsightItem
+            key={idx}
+            insight={insight}
+            isExpanded={expandedIndex === idx}
+            onToggle={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
+            onAddExercise={onAddExercise}
+            styles={styles}
+          />
+        ))}
+      </div>
+      
+      <div style={styles.coachFooter}>
+        💡 <b>Tip:</b> Click an insight to see exercise suggestions
+      </div>
+    </div>
+  );
+}
+
+function InsightItem({ insight, isExpanded, onToggle, onAddExercise, styles }) {
+  const severityColors = {
+    HIGH: '#ef4444',
+    MEDIUM: '#f59e0b',
+    LOW: '#3b82f6',
+    INFO: '#10b981',
+  };
+  
+  return (
+    <div style={{
+      ...styles.insightCard,
+      borderLeft: `4px solid ${severityColors[insight.severity]}`
+    }}>
+      <button 
+        onClick={onToggle}
+        style={styles.insightHeader}
+        type="button"
+      >
+        <div style={{ flex: 1 }}>
+          <div style={styles.insightTitle}>{insight.title}</div>
+          <div style={styles.insightMessage}>{insight.message}</div>
+        </div>
+        {insight.suggestions.length > 0 && (
+          <span style={styles.insightChevron}>
+            {isExpanded ? '▼' : '▶'}
+          </span>
+        )}
+      </button>
+      
+      {isExpanded && insight.suggestions.length > 0 && (
+        <div style={styles.insightSuggestions}>
+          <div style={styles.suggestionsTitle}>💪 Suggested exercises:</div>
+          {insight.suggestions.map((suggestion, i) => (
+            <div key={i} style={styles.suggestionRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.suggestionName}>{suggestion.exercise}</div>
+                <div style={styles.suggestionGroup}>
+                  {suggestion.muscleGroup.replace(/_/g, ' ').toLowerCase()}
+                </div>
+              </div>
+              <button
+                onClick={() => onAddExercise(suggestion.exercise)}
+                style={styles.addSuggestionBtn}
+                type="button"
+              >
+                + Add
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * NEW: Modal for selecting workout to add suggested exercise to
+ */
+function AddSuggestedExerciseModal({ open, exerciseName, workouts, onCancel, onConfirm, styles }) {
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(workouts[0]?.id || null);
+  
+  useEffect(() => {
+    if (open && workouts.length > 0) {
+      setSelectedWorkoutId(workouts[0].id);
+    }
+  }, [open, workouts]);
+  
+  if (!open) return null;
+  
+  return (
+    <Modal open={open} title={`Add "${exerciseName}"`} onClose={onCancel} styles={styles}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={styles.fieldCol}>
+          <label style={styles.label}>Add to which workout?</label>
+          <select
+            value={selectedWorkoutId || ''}
+            onChange={(e) => setSelectedWorkoutId(e.target.value)}
+            style={styles.textInput}
+          >
+            {workouts.map(w => (
+              <option key={w.id} value={w.id}>
+                {w.name} ({w.category})
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div style={styles.smallText}>
+          💡 This will add <b>"{exerciseName}"</b> to your selected workout. You can rename or remove it later.
+        </div>
+        
+        <div style={styles.modalFooter}>
+          <button style={styles.secondaryBtn} onClick={onCancel}>
+            Cancel
+          </button>
+          <button 
+            style={styles.primaryBtn} 
+            onClick={() => onConfirm(selectedWorkoutId, exerciseName)}
+            disabled={!selectedWorkoutId}
+          >
+            Add Exercise
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ============================================================================
 // 6. MAIN APP COMPONENT
 // ============================================================================
@@ -876,6 +1216,12 @@ export default function App() {
     }
     return set;
   }, [state.logsByDate, modals.datePicker.monthCursor]);
+
+  // NEW: AI Coach insights computation
+  const coachInsights = useMemo(() => {
+    const analysis = analyzeWorkoutBalance(state, summaryRange);
+    return detectImbalances(analysis);
+  }, [state, summaryRange]);
 
   // ---------------------------------------------------------------------------
   // EFFECTS - Side effects (saving, syncing)
@@ -1327,6 +1673,44 @@ export default function App() {
     }
   }, []);
 
+  // NEW: Handle adding suggested exercise from AI Coach
+  const handleAddSuggestion = useCallback((exerciseName) => {
+    dispatchModal({
+      type: "OPEN_ADD_SUGGESTION",
+      payload: { exerciseName }
+    });
+  }, []);
+
+  const confirmAddSuggestion = useCallback((workoutId, exerciseName) => {
+    const workout = workoutById.get(workoutId);
+    if (!workout) {
+      alert("❌ Workout not found");
+      return;
+    }
+    
+    // Check if exercise already exists
+    const exists = workout.exercises.some(
+      ex => ex.name.toLowerCase() === exerciseName.toLowerCase()
+    );
+    
+    if (exists) {
+      alert(`"${exerciseName}" already exists in ${workout.name}`);
+      dispatchModal({ type: "CLOSE_ADD_SUGGESTION" });
+      return;
+    }
+    
+    // Add the exercise
+    updateState((st) => {
+      const w = st.program.workouts.find((x) => x.id === workoutId);
+      if (!w) return st;
+      w.exercises.push({ id: uid("ex"), name: exerciseName });
+      return st;
+    });
+    
+    dispatchModal({ type: "CLOSE_ADD_SUGGESTION" });
+    alert(`✅ Added "${exerciseName}" to ${workout.name}!`);
+  }, [workoutById]);
+
   // Swipe hook for calendar
   const swipe = useSwipe({
     onSwipeLeft: () =>
@@ -1505,6 +1889,13 @@ export default function App() {
           {/* TODAY TAB */}
           {tab === "today" ? (
             <div style={styles.section}>
+              {/* NEW: AI Coach Card */}
+              <CoachInsightsCard
+                insights={coachInsights}
+                onAddExercise={handleAddSuggestion}
+                styles={styles}
+              />
+              
               {baselineWorkout ? <WorkoutCard workout={baselineWorkout} /> : null}
               {workouts
                 .filter((w) => w.id !== BASELINE_WORKOUT_ID)
@@ -2033,6 +2424,16 @@ export default function App() {
           </div>
         </div>
       </Modal>
+
+      {/* NEW: Add Suggested Exercise Modal */}
+      <AddSuggestedExerciseModal
+        open={modals.addSuggestion.isOpen}
+        exerciseName={modals.addSuggestion.exerciseName}
+        workouts={workouts.filter(w => w.id !== BASELINE_WORKOUT_ID)}
+        onCancel={() => dispatchModal({ type: "CLOSE_ADD_SUGGESTION" })}
+        onConfirm={confirmAddSuggestion}
+        styles={styles}
+      />
     </div>
   );
 }
@@ -2543,6 +2944,102 @@ function getStyles(colors) {
     themeSwitchLabel: {
       fontSize: 12,
       opacity: 0.9,
+    },
+
+    // NEW: AI Coach specific styles
+    insightCard: {
+      background: colors.cardAltBg,
+      border: `1px solid ${colors.border}`,
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+
+    insightHeader: {
+      width: '100%',
+      padding: 12,
+      textAlign: 'left',
+      background: 'transparent',
+      border: 'none',
+      color: colors.text,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      cursor: 'pointer',
+    },
+
+    insightTitle: {
+      fontWeight: 800,
+      fontSize: 14,
+      marginBottom: 4,
+    },
+
+    insightMessage: {
+      fontSize: 13,
+      opacity: 0.85,
+      lineHeight: 1.4,
+    },
+
+    insightChevron: {
+      fontSize: 12,
+      opacity: 0.6,
+    },
+
+    insightSuggestions: {
+      padding: 12,
+      paddingTop: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+    },
+
+    suggestionsTitle: {
+      fontSize: 12,
+      fontWeight: 800,
+      opacity: 0.75,
+      marginBottom: 4,
+    },
+
+    suggestionRow: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      padding: 10,
+      background: colors.cardBg,
+      border: `1px solid ${colors.border}`,
+      borderRadius: 10,
+    },
+
+    suggestionName: {
+      fontWeight: 700,
+      fontSize: 14,
+    },
+
+    suggestionGroup: {
+      fontSize: 11,
+      opacity: 0.7,
+      marginTop: 2,
+      textTransform: 'capitalize',
+    },
+
+    addSuggestionBtn: {
+      padding: '8px 12px',
+      borderRadius: 8,
+      border: `1px solid ${colors.border}`,
+      background: colors.primaryBg,
+      color: colors.primaryText,
+      fontWeight: 800,
+      fontSize: 13,
+    },
+
+    coachFooter: {
+      fontSize: 12,
+      opacity: 0.7,
+      marginTop: 8,
+      padding: '8px 10px',
+      background: colors.appBg === "#0b0f14" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+      borderRadius: 8,
     },
   };
 }
