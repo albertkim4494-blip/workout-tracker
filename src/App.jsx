@@ -31,6 +31,32 @@ const LS_KEY = "workout_tracker_v2";
 const LS_BACKUP_KEY = "workout_tracker_v2_backup";
 const BASELINE_WORKOUT_ID = "baseline";
 
+const REP_UNITS = [
+  // Count
+  { key: "reps", label: "Reps", abbr: "reps", allowDecimal: false },
+  // Distance (imperial)
+  { key: "miles", label: "Miles", abbr: "mi", allowDecimal: true },
+  { key: "yards", label: "Yards", abbr: "yd", allowDecimal: false },
+  { key: "laps", label: "Laps", abbr: "laps", allowDecimal: false },
+  { key: "steps", label: "Steps", abbr: "steps", allowDecimal: false },
+  // Time
+  { key: "sec", label: "Seconds", abbr: "sec", allowDecimal: true },
+  { key: "min", label: "Minutes", abbr: "min", allowDecimal: true },
+  { key: "hrs", label: "Hours", abbr: "hrs", allowDecimal: true },
+];
+
+function getUnit(key, exercise) {
+  if (key === "custom" && exercise) {
+    return {
+      key: "custom",
+      label: exercise.customUnitAbbr || "custom",
+      abbr: exercise.customUnitAbbr || "custom",
+      allowDecimal: exercise.customUnitAllowDecimal ?? false,
+    };
+  }
+  return REP_UNITS.find((u) => u.key === key) || REP_UNITS[0];
+}
+
 // ============================================================================
 // 2. UTILITY FUNCTIONS - Helper functions used throughout the app
 // ============================================================================
@@ -208,10 +234,10 @@ function ensureBaselineWorkout(program) {
  */
 function defaultBaselineExercises() {
   return [
-    { id: uid("ex"), name: "Push Ups" },
-    { id: uid("ex"), name: "Pull Ups" },
-    { id: uid("ex"), name: "Squats" },
-    { id: uid("ex"), name: "Face Pulls" },
+    { id: uid("ex"), name: "Push Ups", unit: "reps" },
+    { id: uid("ex"), name: "Pull Ups", unit: "reps" },
+    { id: uid("ex"), name: "Squats", unit: "reps" },
+    { id: uid("ex"), name: "Face Pulls", unit: "reps" },
   ];
 }
 
@@ -231,8 +257,8 @@ function defaultWorkouts() {
       name: "Workout A",
       category: "Workout",
       exercises: [
-        { id: uid("ex"), name: "Incline Bench Press" },
-        { id: uid("ex"), name: "Row" },
+        { id: uid("ex"), name: "Incline Bench Press", unit: "reps" },
+        { id: uid("ex"), name: "Row", unit: "reps" },
       ],
     },
     {
@@ -240,8 +266,8 @@ function defaultWorkouts() {
       name: "Workout B",
       category: "Workout",
       exercises: [
-        { id: uid("ex"), name: "Overhead Press" },
-        { id: uid("ex"), name: "Pull Down" },
+        { id: uid("ex"), name: "Overhead Press", unit: "reps" },
+        { id: uid("ex"), name: "Pull Down", unit: "reps" },
       ],
     },
   ];
@@ -609,10 +635,26 @@ const initialModalState = {
     name: "",
     category: "Workout",
   },
+  addExercise: {
+    isOpen: false,
+    workoutId: null,
+    name: "",
+    unit: "reps",
+    customUnitAbbr: "",
+    customUnitAllowDecimal: false,
+  },
   // NEW: Modal for adding suggested exercises from AI Coach
   addSuggestion: {
     isOpen: false,
     exerciseName: "",
+  },
+  editUnit: {
+    isOpen: false,
+    workoutId: null,
+    exerciseId: null,
+    unit: "reps",
+    customUnitAbbr: "",
+    customUnitAllowDecimal: false,
   },
 };
 
@@ -745,6 +787,32 @@ function modalReducer(state, action) {
         addWorkout: initialModalState.addWorkout,
       };
 
+    // ===== ADD EXERCISE MODAL =====
+    case "OPEN_ADD_EXERCISE":
+      return {
+        ...state,
+        addExercise: {
+          isOpen: true,
+          workoutId: action.payload.workoutId,
+          name: "",
+          unit: "reps",
+          customUnitAbbr: "",
+          customUnitAllowDecimal: false,
+        },
+      };
+
+    case "UPDATE_ADD_EXERCISE":
+      return {
+        ...state,
+        addExercise: { ...state.addExercise, ...action.payload },
+      };
+
+    case "CLOSE_ADD_EXERCISE":
+      return {
+        ...state,
+        addExercise: initialModalState.addExercise,
+      };
+
     // NEW: Add suggestion modal actions
     case "OPEN_ADD_SUGGESTION":
       return {
@@ -759,6 +827,32 @@ function modalReducer(state, action) {
       return {
         ...state,
         addSuggestion: initialModalState.addSuggestion,
+      };
+
+    // ===== EDIT UNIT MODAL =====
+    case "OPEN_EDIT_UNIT":
+      return {
+        ...state,
+        editUnit: {
+          isOpen: true,
+          workoutId: action.payload.workoutId,
+          exerciseId: action.payload.exerciseId,
+          unit: action.payload.unit,
+          customUnitAbbr: action.payload.customUnitAbbr || "",
+          customUnitAllowDecimal: action.payload.customUnitAllowDecimal ?? false,
+        },
+      };
+
+    case "UPDATE_EDIT_UNIT":
+      return {
+        ...state,
+        editUnit: { ...state.editUnit, ...action.payload },
+      };
+
+    case "CLOSE_EDIT_UNIT":
+      return {
+        ...state,
+        editUnit: initialModalState.editUnit,
       };
 
     default:
@@ -1295,7 +1389,7 @@ export default function App() {
   /**
    * Compute summary stats for an exercise
    */
-  function computeExerciseSummary(exerciseId, startKey, endKey) {
+  function computeExerciseSummary(exerciseId, startKey, endKey, unit) {
     let totalReps = 0;
     let maxNum = null;
     let hasBW = false;
@@ -1321,7 +1415,11 @@ export default function App() {
       }
     }
 
-    return { totalReps, maxWeight: formatMaxWeight(maxNum, hasBW) };
+    const displayTotal = unit?.allowDecimal
+      ? parseFloat(totalReps.toFixed(2))
+      : Math.floor(totalReps);
+
+    return { totalReps: displayTotal, maxWeight: formatMaxWeight(maxNum, hasBW) };
   }
 
   // ---------------------------------------------------------------------------
@@ -1352,7 +1450,14 @@ export default function App() {
       dispatchModal({
         type: "OPEN_LOG",
         payload: {
-          context: { workoutId, exerciseId, exerciseName: exercise.name },
+          context: {
+            workoutId,
+            exerciseId,
+            exerciseName: exercise.name,
+            unit: exercise.unit || "reps",
+            customUnitAbbr: exercise.customUnitAbbr || "",
+            customUnitAllowDecimal: exercise.customUnitAllowDecimal ?? false,
+          },
           sets: normalizedSets,
           notes: prior?.notes ?? "",
         },
@@ -1367,22 +1472,36 @@ export default function App() {
   const saveLog = useCallback(() => {
     if (!modals.log.context) return;
 
-    const cleanedSets = modals.log.sets
-      .map((s) => {
-        const reps = Number(s.reps ?? 0);
-        const repsClean = Number.isFinite(reps) && reps > 0 ? Math.floor(reps) : 0;
-        const w = String(s.weight ?? "").trim();
-        const weight = w.toUpperCase() === "BW" ? "BW" : w.replace(/[^\d.]/g, "");
-        return { reps: repsClean, weight: weight || "" };
-      })
-      .filter((s) => s.reps > 0);
+    const logCtx = modals.log.context;
 
     updateState((st) => {
+      // Look up exercise from program for current unit
+      let logExercise = null;
+      for (const wk of st.program.workouts) {
+        const found = wk.exercises.find((e) => e.id === logCtx.exerciseId);
+        if (found) { logExercise = found; break; }
+      }
+      const logUnit = logExercise ? getUnit(logExercise.unit, logExercise) : getUnit("reps");
+
+      const cleanedSets = modals.log.sets
+        .map((s) => {
+          const reps = Number(s.reps ?? 0);
+          const repsClean = Number.isFinite(reps) && reps > 0
+            ? (logUnit.allowDecimal ? parseFloat(reps.toFixed(2)) : Math.floor(reps))
+            : 0;
+          const w = String(s.weight ?? "").trim();
+          const weight = w.toUpperCase() === "BW" ? "BW" : w.replace(/[^\d.]/g, "");
+          return { reps: repsClean, weight: weight || "" };
+        })
+        .filter((s) => s.reps > 0);
+
+      // Save the log entry (no unit persistence — units are managed in Manage tab)
       st.logsByDate[dateKey] = st.logsByDate[dateKey] ?? {};
-      st.logsByDate[dateKey][modals.log.context.exerciseId] = {
+      st.logsByDate[dateKey][logCtx.exerciseId] = {
         sets: cleanedSets.length ? cleanedSets : [{ reps: 0, weight: "BW" }],
         notes: modals.log.notes ?? "",
       };
+
       return st;
     });
 
@@ -1518,31 +1637,8 @@ export default function App() {
       if (!workout) return;
 
       dispatchModal({
-        type: "OPEN_INPUT",
-        payload: {
-          title: "Add exercise",
-          label: "Exercise name",
-          placeholder: "e.g. Bench Press",
-          initialValue: "",
-          confirmText: "Add",
-          onConfirm: (val) => {
-            // IMPROVEMENT: Validate input
-            const validation = validateExerciseName(val, workout.exercises);
-            if (!validation.valid) {
-              alert("⚠️ " + validation.error);
-              return;
-            }
-
-            const name = val.trim();
-            updateState((st) => {
-              const w = st.program.workouts.find((x) => x.id === workoutId);
-              if (!w) return st;
-              w.exercises.push({ id: uid("ex"), name });
-              return st;
-            });
-            dispatchModal({ type: "CLOSE_INPUT" });
-          },
-        },
+        type: "OPEN_ADD_EXERCISE",
+        payload: { workoutId },
       });
     },
     [workoutById]
@@ -1617,6 +1713,55 @@ export default function App() {
     },
     [workoutById]
   );
+
+  /**
+   * Edit unit for an exercise (from Manage tab)
+   */
+  const editUnitExercise = useCallback(
+    (workoutId, exerciseId) => {
+      const w = workoutById.get(workoutId);
+      const ex = w?.exercises?.find((e) => e.id === exerciseId);
+      if (!ex) return;
+
+      dispatchModal({
+        type: "OPEN_EDIT_UNIT",
+        payload: {
+          workoutId,
+          exerciseId,
+          unit: ex.unit || "reps",
+          customUnitAbbr: ex.customUnitAbbr || "",
+          customUnitAllowDecimal: ex.customUnitAllowDecimal ?? false,
+        },
+      });
+    },
+    [workoutById]
+  );
+
+  const saveEditUnit = useCallback(() => {
+    const { workoutId, exerciseId, unit, customUnitAbbr, customUnitAllowDecimal } = modals.editUnit;
+
+    if (unit === "custom" && !customUnitAbbr?.trim()) {
+      alert("\u26a0\ufe0f Please enter a custom unit abbreviation");
+      return;
+    }
+
+    updateState((st) => {
+      const w = st.program.workouts.find((x) => x.id === workoutId);
+      const ex = w?.exercises?.find((e) => e.id === exerciseId);
+      if (!ex) return st;
+      ex.unit = unit;
+      if (unit === "custom") {
+        ex.customUnitAbbr = customUnitAbbr.trim();
+        ex.customUnitAllowDecimal = customUnitAllowDecimal ?? false;
+      } else {
+        delete ex.customUnitAbbr;
+        delete ex.customUnitAllowDecimal;
+      }
+      return st;
+    });
+
+    dispatchModal({ type: "CLOSE_EDIT_UNIT" });
+  }, [modals.editUnit]);
 
   /**
    * Export data as JSON
@@ -1703,10 +1848,10 @@ export default function App() {
     updateState((st) => {
       const w = st.program.workouts.find((x) => x.id === workoutId);
       if (!w) return st;
-      w.exercises.push({ id: uid("ex"), name: exerciseName });
+      w.exercises.push({ id: uid("ex"), name: exerciseName, unit: "reps" });
       return st;
     });
-    
+
     dispatchModal({ type: "CLOSE_ADD_SUGGESTION" });
     alert(`✅ Added "${exerciseName}" to ${workout.name}!`);
   }, [workoutById]);
@@ -1735,10 +1880,19 @@ export default function App() {
   function ExerciseRow({ workoutId, exercise }) {
     const exLog = logsForDate[exercise.id] ?? null;
     const hasLog = !!exLog;
+    const exUnit = getUnit(exercise.unit, exercise);
     const setsText = hasLog
       ? exLog.sets
           ?.filter((s) => Number(s.reps) > 0)
-          .map((s) => `${s.reps}x${String(s.weight).toUpperCase() === "BW" ? "BW" : s.weight}`)
+          .map((s) => {
+            const isBW = String(s.weight).toUpperCase() === "BW";
+            const w = isBW ? "BW" : s.weight;
+            if (exUnit.key === "reps") {
+              return `${s.reps}x${w}`;
+            }
+            const hasWeight = w && w !== "BW" && w !== "" && w !== "0";
+            return hasWeight ? `${s.reps}${exUnit.abbr} @ ${w}` : `${s.reps}${exUnit.abbr}`;
+          })
           .join(", ")
       : "";
 
@@ -1751,6 +1905,7 @@ export default function App() {
         >
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
             <div style={styles.exerciseName}>{exercise.name}</div>
+            <span style={styles.unitPill}>{exUnit.abbr}</span>
             {hasLog ? <span style={styles.badge}>Logged</span> : <span style={styles.badgeMuted}>-</span>}
           </div>
           {hasLog && setsText ? <div style={styles.exerciseSub}>{setsText}</div> : null}
@@ -1813,12 +1968,13 @@ export default function App() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {workout.exercises.map((ex) => {
-              const s = computeExerciseSummary(ex.id, summaryRange.start, summaryRange.end);
+              const exUnit = getUnit(ex.unit, ex);
+              const s = computeExerciseSummary(ex.id, summaryRange.start, summaryRange.end, exUnit);
               return (
                 <div key={ex.id} style={styles.summaryRow}>
                   <div style={{ fontWeight: 600 }}>{ex.name}</div>
                   <div style={styles.summaryRight}>
-                    <span style={styles.summaryChip}>{s.totalReps} reps</span>
+                    <span style={styles.summaryChip}>{s.totalReps} {exUnit.abbr}</span>
                     <span style={styles.summaryChip}>Max {s.maxWeight}</span>
                   </div>
                 </div>
@@ -1889,13 +2045,6 @@ export default function App() {
           {/* TODAY TAB */}
           {tab === "today" ? (
             <div style={styles.section}>
-              {/* NEW: AI Coach Card */}
-              <CoachInsightsCard
-                insights={coachInsights}
-                onAddExercise={handleAddSuggestion}
-                styles={styles}
-              />
-              
               {baselineWorkout ? <WorkoutCard workout={baselineWorkout} /> : null}
               {workouts
                 .filter((w) => w.id !== BASELINE_WORKOUT_ID)
@@ -1908,6 +2057,13 @@ export default function App() {
           {/* SUMMARY TAB */}
           {tab === "summary" ? (
             <div style={styles.section}>
+              {/* AI Coach Card */}
+              <CoachInsightsCard
+                insights={coachInsights}
+                onAddExercise={handleAddSuggestion}
+                styles={styles}
+              />
+
               <PillTabs
                 styles={styles}
                 value={summaryMode}
@@ -2004,8 +2160,14 @@ export default function App() {
                           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                             {w.exercises.map((ex) => (
                               <div key={ex.id} style={styles.manageExerciseRow}>
-                                <div style={{ fontWeight: 700 }}>{ex.name}</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ fontWeight: 700 }}>{ex.name}</div>
+                                  <span style={styles.unitPill}>{getUnit(ex.unit, ex).abbr}</span>
+                                </div>
                                 <div style={{ display: "flex", gap: 8 }}>
+                                  <button style={styles.secondaryBtn} onClick={() => editUnitExercise(w.id, ex.id)}>
+                                    Unit
+                                  </button>
                                   <button style={styles.secondaryBtn} onClick={() => renameExercise(w.id, ex.id)}>
                                     Rename
                                   </button>
@@ -2085,9 +2247,19 @@ export default function App() {
 
       {/* Log Modal */}
       <Modal open={modals.log.isOpen} title={modals.log.context?.exerciseName || "Log"} onClose={() => dispatchModal({ type: "CLOSE_LOG" })} styles={styles}>
+        {modals.log.isOpen && (() => {
+          const logCtx = modals.log.context;
+          // Look up exercise from program for current unit
+          let logExercise = null;
+          for (const wk of state.program.workouts) {
+            const found = wk.exercises.find((e) => e.id === logCtx?.exerciseId);
+            if (found) { logExercise = found; break; }
+          }
+          const logUnit = logExercise ? getUnit(logExercise.unit, logExercise) : getUnit("reps");
+          return (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={styles.smallText}>
-            Prefilled from your most recent log. Edit and hit <b>Save</b>.
+            Prefilled from your most recent log. Unit: <b>{logUnit.label}</b> — change in Manage tab.
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2098,16 +2270,17 @@ export default function App() {
                   <div style={styles.setIndex}>{i + 1}</div>
 
                   <div style={styles.fieldCol}>
-                    <label style={styles.label}>Reps</label>
+                    <label style={styles.label}>{logUnit.label}</label>
                     <input
                       value={String(s.reps ?? "")}
                       onChange={(e) => {
                         const newSets = [...modals.log.sets];
-                        newSets[i] = { ...newSets[i], reps: e.target.value.replace(/[^\d]/g, "") };
+                        const regex = logUnit.allowDecimal ? /[^\d.]/g : /[^\d]/g;
+                        newSets[i] = { ...newSets[i], reps: e.target.value.replace(regex, "") };
                         dispatchModal({ type: "UPDATE_LOG_SETS", payload: newSets });
                       }}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
+                      inputMode={logUnit.allowDecimal ? "decimal" : "numeric"}
+                      pattern={logUnit.allowDecimal ? "[0-9.]*" : "[0-9]*"}
                       style={styles.numInput}
                       placeholder="0"
                     />
@@ -2190,6 +2363,8 @@ export default function App() {
             </button>
           </div>
         </div>
+          );
+        })()}
       </Modal>
 
       {/* Date Picker Modal */}
@@ -2425,6 +2600,128 @@ export default function App() {
         </div>
       </Modal>
 
+      {/* Add Exercise Modal */}
+      <Modal
+        open={modals.addExercise.isOpen}
+        title="Add Exercise"
+        onClose={() => dispatchModal({ type: "CLOSE_ADD_EXERCISE" })}
+        styles={styles}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={styles.fieldCol}>
+            <label style={styles.label}>Exercise name</label>
+            <input
+              value={modals.addExercise.name}
+              onChange={(e) =>
+                dispatchModal({
+                  type: "UPDATE_ADD_EXERCISE",
+                  payload: { name: e.target.value },
+                })
+              }
+              style={styles.textInput}
+              placeholder="e.g. Bench Press"
+              autoFocus
+            />
+          </div>
+
+          <div style={styles.fieldCol}>
+            <label style={styles.label}>Unit</label>
+            <select
+              value={modals.addExercise.unit}
+              onChange={(e) =>
+                dispatchModal({
+                  type: "UPDATE_ADD_EXERCISE",
+                  payload: { unit: e.target.value },
+                })
+              }
+              style={styles.textInput}
+            >
+              {REP_UNITS.map((u) => (
+                <option key={u.key} value={u.key}>
+                  {u.label} ({u.abbr})
+                </option>
+              ))}
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          {modals.addExercise.unit === "custom" && (
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <div style={{ ...styles.fieldCol, flex: 1 }}>
+                <label style={styles.label}>Abbreviation</label>
+                <input
+                  value={modals.addExercise.customUnitAbbr || ""}
+                  onChange={(e) =>
+                    dispatchModal({
+                      type: "UPDATE_ADD_EXERCISE",
+                      payload: { customUnitAbbr: e.target.value.slice(0, 10) },
+                    })
+                  }
+                  style={styles.textInput}
+                  placeholder="e.g. cal"
+                />
+              </div>
+              <div style={{ ...styles.fieldCol, alignItems: "center" }}>
+                <label style={styles.label}>Decimals</label>
+                <input
+                  type="checkbox"
+                  checked={modals.addExercise.customUnitAllowDecimal || false}
+                  onChange={(e) =>
+                    dispatchModal({
+                      type: "UPDATE_ADD_EXERCISE",
+                      payload: { customUnitAllowDecimal: e.target.checked },
+                    })
+                  }
+                  style={styles.checkbox}
+                />
+              </div>
+            </div>
+          )}
+
+          <div style={styles.modalFooter}>
+            <button style={styles.secondaryBtn} onClick={() => dispatchModal({ type: "CLOSE_ADD_EXERCISE" })}>
+              Cancel
+            </button>
+            <button
+              style={styles.primaryBtn}
+              onClick={() => {
+                const workout = workoutById.get(modals.addExercise.workoutId);
+                if (!workout) return;
+
+                const validation = validateExerciseName(modals.addExercise.name, workout.exercises);
+                if (!validation.valid) {
+                  alert("\u26a0\ufe0f " + validation.error);
+                  return;
+                }
+
+                if (modals.addExercise.unit === "custom" && !modals.addExercise.customUnitAbbr?.trim()) {
+                  alert("\u26a0\ufe0f Please enter a custom unit abbreviation");
+                  return;
+                }
+
+                const name = modals.addExercise.name.trim();
+                const unit = modals.addExercise.unit;
+                const wId = modals.addExercise.workoutId;
+                updateState((st) => {
+                  const w = st.program.workouts.find((x) => x.id === wId);
+                  if (!w) return st;
+                  const newEx = { id: uid("ex"), name, unit };
+                  if (unit === "custom") {
+                    newEx.customUnitAbbr = modals.addExercise.customUnitAbbr.trim();
+                    newEx.customUnitAllowDecimal = modals.addExercise.customUnitAllowDecimal ?? false;
+                  }
+                  w.exercises.push(newEx);
+                  return st;
+                });
+                dispatchModal({ type: "CLOSE_ADD_EXERCISE" });
+              }}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* NEW: Add Suggested Exercise Modal */}
       <AddSuggestedExerciseModal
         open={modals.addSuggestion.isOpen}
@@ -2434,6 +2731,79 @@ export default function App() {
         onConfirm={confirmAddSuggestion}
         styles={styles}
       />
+
+      {/* Edit Unit Modal */}
+      <Modal
+        open={modals.editUnit.isOpen}
+        title="Change Unit"
+        onClose={() => dispatchModal({ type: "CLOSE_EDIT_UNIT" })}
+        styles={styles}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={styles.fieldCol}>
+            <label style={styles.label}>Unit</label>
+            <select
+              value={modals.editUnit.unit}
+              onChange={(e) =>
+                dispatchModal({
+                  type: "UPDATE_EDIT_UNIT",
+                  payload: { unit: e.target.value },
+                })
+              }
+              style={styles.textInput}
+            >
+              {REP_UNITS.map((u) => (
+                <option key={u.key} value={u.key}>
+                  {u.label} ({u.abbr})
+                </option>
+              ))}
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          {modals.editUnit.unit === "custom" && (
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <div style={{ ...styles.fieldCol, flex: 1 }}>
+                <label style={styles.label}>Abbreviation</label>
+                <input
+                  value={modals.editUnit.customUnitAbbr || ""}
+                  onChange={(e) =>
+                    dispatchModal({
+                      type: "UPDATE_EDIT_UNIT",
+                      payload: { customUnitAbbr: e.target.value.slice(0, 10) },
+                    })
+                  }
+                  style={styles.textInput}
+                  placeholder="e.g. cal"
+                />
+              </div>
+              <div style={{ ...styles.fieldCol, alignItems: "center" }}>
+                <label style={styles.label}>Decimals</label>
+                <input
+                  type="checkbox"
+                  checked={modals.editUnit.customUnitAllowDecimal || false}
+                  onChange={(e) =>
+                    dispatchModal({
+                      type: "UPDATE_EDIT_UNIT",
+                      payload: { customUnitAllowDecimal: e.target.checked },
+                    })
+                  }
+                  style={styles.checkbox}
+                />
+              </div>
+            </div>
+          )}
+
+          <div style={styles.modalFooter}>
+            <button style={styles.secondaryBtn} onClick={() => dispatchModal({ type: "CLOSE_EDIT_UNIT" })}>
+              Cancel
+            </button>
+            <button style={styles.primaryBtn} onClick={saveEditUnit}>
+              Save
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -2602,6 +2972,16 @@ function getStyles(colors) {
       background: "rgba(255,255,255,0.06)",
       border: "1px solid rgba(255,255,255,0.08)",
       opacity: 0.75,
+    },
+
+    unitPill: {
+      fontSize: 11,
+      fontWeight: 800,
+      padding: "2px 7px",
+      borderRadius: 999,
+      background: colors.appBg === "#0b0f14" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+      border: `1px solid ${colors.border}`,
+      opacity: 0.85,
     },
 
     primaryBtn: {
